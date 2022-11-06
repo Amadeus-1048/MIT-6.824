@@ -4,7 +4,7 @@
 
 Lecture 3    00:00:00
 
-周末刚好仔细读一读 MapReduce论文
+MapReduce论文  
 
 ## 感想
 
