@@ -3,18 +3,15 @@ package main
 //
 // simple sequential MapReduce.
 //
-// go build -buildmode=plugin ../mrapps/wc.go
 // go run mrsequential.go wc.so pg*.txt
 //
 
-import (
-	"fmt"
-	"io"
-)
-import "6.5840/mr"
+import "fmt"
+import "6.824/mr"
 import "plugin"
 import "os"
 import "log"
+import "io/ioutil"
 import "sort"
 
 // for sorting by key.
@@ -44,7 +41,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("cannot open %v", filename)
 		}
-		content, err := io.ReadAll(file)
+		content, err := ioutil.ReadAll(file)
 		if err != nil {
 			log.Fatalf("cannot read %v", filename)
 		}

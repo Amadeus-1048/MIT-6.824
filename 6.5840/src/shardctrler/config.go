@@ -1,7 +1,7 @@
 package shardctrler
 
-import "6.5840/labrpc"
-import "6.5840/raft"
+import "6.824/labrpc"
+import "6.824/raft"
 import "testing"
 import "os"
 
@@ -301,11 +301,9 @@ func (cfg *config) Leader() (bool, int) {
 	defer cfg.mu.Unlock()
 
 	for i := 0; i < cfg.n; i++ {
-		if cfg.servers[i] != nil {
-			_, is_leader := cfg.servers[i].rf.GetState()
-			if is_leader {
-				return true, i
-			}
+		_, is_leader := cfg.servers[i].rf.GetState()
+		if is_leader {
+			return true, i
 		}
 	}
 	return false, 0
