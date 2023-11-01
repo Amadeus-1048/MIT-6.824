@@ -29,7 +29,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 	// 轮训做任务
 	for {
-		response := heartbeat()
+		response := doHeartbeat()
 		log.Printf("Worker: receive coordinator's heartbeat %v \n", response)
 		switch response.JobType {
 		case MapJob:
@@ -106,7 +106,7 @@ func doReduceTask() {
 
 }
 
-func heartbeat() *HeartbeatResponse {
+func doHeartbeat() *HeartbeatResponse {
 	response := HeartbeatResponse{}
 	call("Coordinator.Heartbeat", &HeartbeatRequest{}, &response)
 	return &response

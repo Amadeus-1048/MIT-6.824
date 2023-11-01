@@ -1,5 +1,7 @@
 package mr
 
+import "fmt"
+
 type JobType uint8
 
 const (
@@ -9,6 +11,20 @@ const (
 	CompleteJob
 )
 
+func (job JobType) String() string {
+	switch job {
+	case MapJob:
+		return "MapJob"
+	case ReduceJob:
+		return "ReduceJob"
+	case WaitJob:
+		return "WaitJob"
+	case CompleteJob:
+		return "CompleteJob"
+	}
+	panic(fmt.Sprintf("unexpected jobType %d", job))
+}
+
 type TaskStatus uint8
 
 const (
@@ -16,3 +32,23 @@ const (
 	Working
 	Finished
 )
+
+type SchedulePhase uint8
+
+const (
+	MapPhase SchedulePhase = iota
+	ReducePhase
+	CompletePhase
+)
+
+func (phase SchedulePhase) String() string {
+	switch phase {
+	case MapPhase:
+		return "MapPhase"
+	case ReducePhase:
+		return "ReducePhase"
+	case CompletePhase:
+		return "CompletePhase"
+	}
+	panic(fmt.Sprintf("unexpected SchedulePhase %d", phase))
+}
