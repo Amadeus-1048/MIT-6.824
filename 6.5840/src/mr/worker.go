@@ -144,6 +144,8 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 			}
 		}(index, intermediate)
 	}
+	wg.Wait() // 等待所有并发写入完成
+	// todo : 向coordinator报告
 }
 
 func doReduceTask() {
