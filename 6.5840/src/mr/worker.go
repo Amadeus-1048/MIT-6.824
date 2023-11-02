@@ -38,7 +38,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		log.Printf("Worker: receive coordinator's heartbeat %v \n", response)
 		switch response.JobType {
 		case MapJob:
-			doMapTask()
+			doMapTask(mapf, response)
 		case ReduceJob:
 			doReduceTask()
 		case WaitJob:
@@ -138,7 +138,10 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 					log.Fatalf("cannot encode json %v", kv.Key)
 				}
 			}
-			// todo : write into file
+			err = atomicWriteFile(intermediateFilePath, &buf) // 将缓冲区中的数据写入到中间文件中
+			if err != nil {
+				log.Fatalf("cannot write file %v", intermediateFilePath)
+			}
 		}(index, intermediate)
 	}
 }
