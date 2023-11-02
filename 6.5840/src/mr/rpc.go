@@ -35,15 +35,15 @@ type HeartbeatResponse struct {
 	JobType  JobType
 	NReduce  int // Reduce 任务的数量
 	NMap     int // Map 任务的数量
-	Id       int
+	ID       int
 }
 
 func (response HeartbeatResponse) String() string {
 	switch response.JobType {
 	case MapJob:
-		return fmt.Sprintf("{JobType:%v,FilePath:%v,Id:%v,NReduce:%v}", response.JobType, response.FilePath, response.Id, response.NReduce)
+		return fmt.Sprintf("{JobType:%v,FilePath:%v,Id:%v,NReduce:%v}", response.JobType, response.FilePath, response.ID, response.NReduce)
 	case ReduceJob:
-		return fmt.Sprintf("{JobType:%v,Id:%v,NMap:%v,NReduce:%v}", response.JobType, response.Id, response.NMap, response.NReduce)
+		return fmt.Sprintf("{JobType:%v,Id:%v,NMap:%v,NReduce:%v}", response.JobType, response.ID, response.NMap, response.NReduce)
 	case WaitJob, CompleteJob:
 		return fmt.Sprintf("{JobType:%v}", response.JobType)
 	}
@@ -52,12 +52,12 @@ func (response HeartbeatResponse) String() string {
 
 // 用于报告任务进度的请求
 type ReportRequest struct {
-	Id    int           // 任务 ID
+	ID    int           // 任务 ID
 	Phase SchedulePhase // 当前的调度阶段
 }
 
 func (request ReportRequest) String() string {
-	return fmt.Sprintf("{Id:%v,SchedulePhase:%v}", request.Id, request.Phase)
+	return fmt.Sprintf("{Id:%v,SchedulePhase:%v}", request.ID, request.Phase)
 }
 
 // 用于任务报告的响应。表示调度器已收到并处理了报告

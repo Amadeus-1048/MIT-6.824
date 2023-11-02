@@ -1,7 +1,12 @@
 package mr
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"sync"
 	"time"
 )
 import "log"
@@ -98,8 +103,44 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	return false
 }
 
-func doMapTask() {
-
+func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse) {
+	// 读取输入文件
+	fileName := response.FilePath
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Fatalf("cannot open %v", fileName)
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", fileName)
+	}
+	file.Close()
+	// 处理读取的文件内容
+	kva := mapF(fileName, string(content))
+	// 分配键值对到中间存储
+	intermediates := make([][]KeyValue, response.NReduce) // 根据 Reduce 任务的数量（response.NReduce），创建一个二维切片
+	for _, kv := range kva {                              // 切片用来存储每个 Reduce 任务的中间键值对。
+		index := ihash(kv.Key) % response.NReduce // 对每个键进行哈希和取模后确定这个键值对应该分配给哪一个 Reduce 任务
+		intermediates[index] = append(intermediates[index], kv)
+	}
+	// 并发写入中间结果
+	var wg sync.WaitGroup
+	for index, intermediate := range intermediates {
+		wg.Add(1)
+		go func(index int, intermediate []KeyValue) { // 对每个 Reduce 任务的中间结果，启动一个并发的 Go 协程进行处理
+			defer wg.Done()
+			intermediateFilePath := generateMapResultFileName(response.ID, index) // response.ID 即 mapNumber， index 即 reduceNumber
+			var buf bytes.Buffer                                                  // 暂存编码后的数据
+			encode := json.NewEncoder(&buf)                                       // 建一个 JSON 编码器
+			for _, kv := range intermediate {
+				err = encode.Encode(&kv) // 遍历 intermediate 中的每个键值对，并使用 JSON 编码器将它们编码
+				if err != nil {
+					log.Fatalf("cannot encode json %v", kv.Key)
+				}
+			}
+			// todo : write into file
+		}(index, intermediate)
+	}
 }
 
 func doReduceTask() {
