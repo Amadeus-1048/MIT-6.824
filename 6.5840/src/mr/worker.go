@@ -126,7 +126,7 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 	var wg sync.WaitGroup
 	for index, intermediate := range intermediates {
 		wg.Add(1)
-		go func(index int, intermediate []KeyValue) { // 对每个 Reduce 任务的中间结果，启动一个并发的 Go 协程进行处理
+		go func(index int, intermediate []KeyValue) { // 对每个中间结果，启动一个并发的 Go 协程进行处理
 			defer wg.Done()
 			intermediateFilePath := generateMapResultFileName(response.ID, index) // response.ID 即 mapID， index 即 reduceID
 			var buf bytes.Buffer                                                  // 暂存编码后的数据
