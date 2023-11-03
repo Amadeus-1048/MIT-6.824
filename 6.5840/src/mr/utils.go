@@ -2,10 +2,10 @@ package mr
 
 import "fmt"
 
-func generateMapResultFileName(mapNumber, reduceNumber int) string {
-	return fmt.Sprintf("mr-%d-%d", mapNumber, reduceNumber)
+func generateMapResultFileName(mapID, reduceID int) string {
+	return fmt.Sprintf("mr-%d-%d", mapID, reduceID)
 }
 
-func generateReduceResultFileName(reduceNumber int) string {
-	return fmt.Sprintf("mr-out-%d", reduceNumber)
+func generateReduceResultFileName(reduceID int) string {
+	return fmt.Sprintf("mr-out-%d", reduceID)
 }

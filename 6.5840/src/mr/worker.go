@@ -28,8 +28,7 @@ func ihash(key string) int {
 }
 
 // main/mrworker.go calls this function.
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+func Worker(mapF func(string, string) []KeyValue, reduceF func(string, []string) string) {
 
 	// Your worker implementation here.
 	// 轮训做任务
@@ -38,9 +37,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		log.Printf("Worker: receive coordinator's heartbeat %v \n", response)
 		switch response.JobType {
 		case MapJob:
-			doMapTask(mapf, response)
+			doMapTask(mapF, response)
 		case ReduceJob:
-			doReduceTask()
+			doReduceTask(reduceF, response)
 		case WaitJob:
 			time.Sleep(1 * time.Second)
 		case CompleteJob:
@@ -129,7 +128,7 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 		wg.Add(1)
 		go func(index int, intermediate []KeyValue) { // 对每个 Reduce 任务的中间结果，启动一个并发的 Go 协程进行处理
 			defer wg.Done()
-			intermediateFilePath := generateMapResultFileName(response.ID, index) // response.ID 即 mapNumber， index 即 reduceNumber
+			intermediateFilePath := generateMapResultFileName(response.ID, index) // response.ID 即 mapID， index 即 reduceID
 			var buf bytes.Buffer                                                  // 暂存编码后的数据
 			encode := json.NewEncoder(&buf)                                       // 建一个 JSON 编码器
 			for _, kv := range intermediate {
@@ -148,8 +147,35 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 	// todo : 向coordinator报告
 }
 
-func doReduceTask() {
-
+func doReduceTask(reduceF func(string, []string) string, response *HeartbeatResponse) {
+	var kva []KeyValue                   // 存储从多个文件中解码得到的键值对
+	for i := 0; i < response.NMap; i++ { // i 遍历的是所有 map 任务的输出文件
+		filePath := generateMapResultFileName(i, response.ID) // i 是 mapID， response.Id 是当前的 reduceID，在处理所有 map 任务产生的文件时保持不变，因为它是指当前正在执行的这个 reduce 任务
+		file, err := os.Open(filePath)
+		if err != nil {
+			log.Fatalf("cannot open %v", filePath)
+		}
+		decode := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err = decode.Decode(&kv); err != nil {
+				break
+			}
+			kva = append(kva, kv)
+		}
+		file.Close()
+	}
+	results := make(map[string][]string)
+	for _, kv := range kva {
+		results[kv.Key] = append(results[kv.Key], kv.Value)
+	}
+	var buf bytes.Buffer
+	for key, values := range results {
+		output := reduceF(key, values)
+		fmt.Fprintf(&buf, "%v %v\n", key, output)
+	}
+	atomicWriteFile(generateReduceResultFileName(response.ID), &buf)
+	// todo : 向 coordinator 报告
 }
 
 func doHeartbeat() *HeartbeatResponse {
