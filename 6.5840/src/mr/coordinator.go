@@ -1,15 +1,43 @@
 package mr
 
-import "log"
+import (
+	"log"
+	"time"
+)
 import "net"
 import "os"
 import "net/rpc"
 import "net/http"
 
+type Task struct {
+	fileName  string
+	id        int
+	startTime time.Time
+	status    TaskStatus
+}
+
+type heartbeatMsg struct {
+	response *HeartbeatResponse
+	ok       chan struct{}
+}
+
+type reportMsg struct {
+	response *ReportRequest
+	ok       chan struct{}
+}
+
 // 无状态、基于channel
 type Coordinator struct {
 	// Your definitions here.
+	files   []string
+	nReduce int
+	nMap    int
+	phase   SchedulePhase
+	tasks   []Task
 
+	heartbeatCh chan heartbeatMsg
+	reportCh    chan reportMsg
+	doneCh      chan struct{}
 }
 
 // Your code here -- RPC handlers for the worker to call.
