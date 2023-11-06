@@ -73,17 +73,37 @@ func (c *Coordinator) Report(request *ReportRequest, response *ReportResponse) e
 	return nil
 }
 
+// 任务调度器初始化Map阶段
 func (c *Coordinator) initMapPhase() {
 	c.phase = MapPhase
-
+	c.tasks = make([]Task, len(c.files)) // 存储所有的任务, 每个输入文件将对应一个Map任务
+	for index, file := range c.files {
+		c.tasks[index] = Task{
+			fileName: file,
+			id:       index,
+			status:   Idle, // 表示这个任务目前还没有被分配出去, 状态设置为待处理
+		}
+	}
 }
 
+// 在Map任务全部完成之后，为接下来的Reduce阶段做准备
 func (c *Coordinator) initReducePhase() {
-
+	c.phase = ReducePhase
+	c.tasks = make([]Task, c.nReduce) // 会有c.nReduce个Reduce任务需要被执行
+	for i := 0; i < c.nReduce; i++ {
+		c.tasks[i] = Task{
+			id:     i,
+			status: Idle,
+		}
+	}
 }
 
+// 设置协调器的状态到完成状态，并且发出一个信号表示所有MapReduce任务已经执行完毕
 func (c *Coordinator) initCompletePhase() {
-
+	c.phase = CompletePhase
+	// 用来通知其他正在等待任务完成的Goroutine，MapReduce任务已经全部结束了。
+	// 因此，如果有一个Goroutine在doneCh上等待（例如通过<-c.doneCh），它将接收到这个信号并可以继续执行。
+	c.doneCh <- struct{}{}
 }
 
 func (c *Coordinator) schedule() {
