@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"time"
 )
@@ -22,8 +23,8 @@ type heartbeatMsg struct {
 }
 
 type reportMsg struct {
-	response *ReportRequest
-	ok       chan struct{}
+	request *ReportRequest
+	ok      chan struct{}
 }
 
 // 无状态、基于channel
@@ -65,8 +66,8 @@ func (c *Coordinator) Heartbeat(request *HeartbeatRequest, response *HeartbeatRe
 // 处理 worker 发送的任务完成报告
 func (c *Coordinator) Report(request *ReportRequest, response *ReportResponse) error {
 	msg := reportMsg{
-		response: request,
-		ok:       make(chan struct{}), // 这种类型的通道通常用于信号传递，而不是数据传递。它的目的是同步，确保报告被处理后再继续。
+		request: request,
+		ok:      make(chan struct{}), // 这种类型的通道通常用于信号传递，而不是数据传递。它的目的是同步，确保报告被处理后再继续。
 	}
 	c.reportCh <- msg
 	<-msg.ok // 等待接收 msg.ok 通道上的信号, 是一个典型的同步等待模式，确保任务报告被正确处理之前，方法不会返回。
@@ -106,8 +107,89 @@ func (c *Coordinator) initCompletePhase() {
 	c.doneCh <- struct{}{}
 }
 
+// 用于初始化和管理不同阶段的任务分配和监控
+// 是MapReduce框架中协调器（Coordinator）的核心功能
 func (c *Coordinator) schedule() {
+	// 初始化Map任务
+	c.initMapPhase() // 该函数设置了当前的任务阶段为MapPhase，并初始化一个任务列表（tasks），每个文件对应一个Map任务
+	// 无限循环
+	for { // 使用了select语句来等待多个通道（channel）的输入
+		select { // select语句让Coordinator能响应不同类型的事件，例如心跳（heartbeatCh）和任务完成报告（reportCh）
+		// 处理心跳信号
+		case msg := <-c.heartbeatCh: // 协调器收到来自工作节点的心跳信号时，它会检查当前的阶段并分配任务，或者告诉工作节点任务已经完成
+			// 检查状态和任务分配
+			if c.phase == CompletePhase { // 表示所有任务都已完成
+				msg.response.JobType = CompleteJob
+			} else if c.selectTask(msg.response) { // 分配一个新任务给工作节点
+				// 任务和阶段转换
+				switch c.phase { // 根据当前的阶段来决定接下来的行动
+				case MapPhase: // Map任务已完成，将初始化Reduce阶段
+					log.Printf("Coordinator: %v finished, start %v \n", MapPhase, ReducePhase)
+					c.initReducePhase()
+					c.selectTask(msg.response)
+				case ReducePhase: // Reduce任务已完成，将进入完成阶段
+					log.Printf("Coordinator: %v finished, Congratulations \n", ReducePhase)
+					c.initCompletePhase()
+					msg.response.JobType = CompleteJob
+				case CompletePhase:
+					panic(fmt.Sprintf("Coordinator: enter unexpected branch"))
+				}
+			}
+			log.Printf("Coordinator: assigned a task %v to worker \n", msg.response)
+			// 发送确认给工作节点
+			msg.ok <- struct{}{} // 确认心跳已处理，任务分配或状态更新完成
+		// 处理任务完成报告
+		case msg := <-c.reportCh: // 从工作节点接收到任务完成的报告
+			if msg.request.Phase == c.phase { // 报告msg的阶段与当前阶段相同
+				log.Printf("Coordinator: Worker has executed task %v \n", msg.request)
+				c.tasks[msg.request.ID].status = Finished // 更新对应任务的状态
+			}
+			msg.ok <- struct{}{} // 确认报告已经被处理
+		}
+	}
+}
 
+// 检查任务队列，根据任务的状态和执行情况动态分配任务给请求者，并更新其响应信息
+func (c *Coordinator) selectTask(response *HeartbeatResponse) bool {
+	allFinished, hasNewJob := true, false // 判断是否所有任务都完成   判断是否有新任务可以分配
+	for id, task := range c.tasks {       // 遍历协调器中所有的任务
+		switch task.status { // 根据任务的状态来执行不同的操作
+		case Idle: // 意味着有任务还未被执行
+			allFinished, hasNewJob = false, true // 所有任务未全部完成，且存在新的可分配任务
+			c.tasks[id].status, c.tasks[id].startTime = Working, time.Now()
+			// response.NReduce告诉节点如何将Map阶段的输出分区（partition），以确保输出是Reduce任务可以接受的
+			// c.nReduce：存储了Reduce任务的总数量，这个值在Coordinator初始化时就已经设定，并且在整个MapReduce任务过程中是不变的
+			response.NReduce, response.ID = c.nReduce, id // 在response中设置NReduce（Reduce任务的总数）和任务的ID
+			if c.phase == MapPhase {                      // 根据当前的phase（阶段），设置任务类型（MapJob或ReduceJob）以及相应的文件路径或nMap（Map任务的数量）
+				response.JobType, response.FilePath = MapJob, c.files[id]
+			} else {
+				// 将Map阶段完成的任务总数赋值给NMap字段。在Reduce阶段，这个信息对工作节点至关重要
+				// 因为它告诉工作节点在Reduce任务中需要处理的中间文件数量。每个Map任务可能会生成一个中间文件
+				response.JobType, response.NMap = ReduceJob, c.nMap // nMap是map任务的数量
+			}
+		case Working: // 有任务正在进行中
+			allFinished = false                                      // 所有任务未全部完成
+			if time.Now().Sub(task.startTime) > MaxTaskRunInterval { // 如果一个正在工作的任务超时了
+				hasNewJob = true                   // 则重新分配这个任务
+				c.tasks[id].startTime = time.Now() // 并更新开始时间
+				response.NReduce, response.ID = c.nReduce, id
+				if c.phase == MapPhase {
+					response.JobType, response.FilePath = MapJob, c.files[id]
+				} else {
+					response.JobType, response.NMap = ReduceJob, c.nMap // nMap是map任务的数量
+				}
+			}
+		case Finished:
+			// 如果任务已经完成，那么什么也不做
+		}
+		if hasNewJob { // 如果已经找到一个新任务，就跳出循环
+			break
+		}
+	}
+	if !hasNewJob { // 如果没有新任务可以分配，则设置响应类型为WaitJob，让工作节点等待
+		response.JobType = WaitJob
+	}
+	return allFinished
 }
 
 // an example RPC handler.

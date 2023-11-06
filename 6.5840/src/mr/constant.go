@@ -1,6 +1,11 @@
 package mr
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
+
+const MaxTaskRunInterval = 10 * time.Second
 
 type JobType uint8
 
