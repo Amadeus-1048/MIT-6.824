@@ -103,7 +103,7 @@ func (c *Coordinator) initReducePhase() {
 func (c *Coordinator) initCompletePhase() {
 	c.phase = CompletePhase
 	// 用来通知其他正在等待任务完成的Goroutine，MapReduce任务已经全部结束了。
-	// 因此，如果有一个Goroutine在doneCh上等待（例如通过<-c.doneCh），它将接收到这个信号并可以继续执行。
+	// 因此，如果有一个Goroutine在doneCh上等待（<-c.doneCh），它将接收到这个信号并可以继续执行。
 	c.doneCh <- struct{}{}
 }
 
@@ -216,22 +216,32 @@ func (c *Coordinator) server() {
 
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
+// 确定整个MapReduce作业是否完成
 func (c *Coordinator) Done() bool {
-	ret := false
-
 	// Your code here.
-
-	return ret
+	// doneCh是一个带有一个缓冲的通道，带有缓冲的通道是非阻塞的，直到其缓冲区填满。
+	// 缓冲区大小为1，意味着协调者可以发送一个完成信号，而不用担心阻塞，如果已经有一个信号在通道中了，发送者将会阻塞
+	<-c.doneCh
+	// 一旦c.doneCh通道接收到信号，这个方法就会返回true，表示整个MapReduce作业已经完成
+	return true
 }
 
 // create a Coordinator.
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
-
 	// Your code here.
-
+	c := Coordinator{
+		files:       files,
+		nReduce:     nReduce,
+		nMap:        len(files),              // 每个文件对应一个map任务
+		heartbeatCh: make(chan heartbeatMsg), // 接收来自工作节点的心跳消息
+		reportCh:    make(chan reportMsg),    // 接收工作节点完成任务后的报告消息
+		doneCh:      make(chan struct{}, 1),  // 在整个作业完成时发送信号，缓冲大小为1，允许发送一个信号而不阻塞
+	}
+	// 初始化服务器
 	c.server()
+	// 开始调度
+	go c.schedule()
 	return &c
 }
