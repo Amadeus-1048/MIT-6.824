@@ -183,3 +183,8 @@ func doHeartbeat() *HeartbeatResponse {
 	call("Coordinator.Heartbeat", &HeartbeatRequest{}, &response)
 	return &response
 }
+
+func doReport(id int, phase SchedulePhase) {
+	response := ReportResponse{}
+	call("Coordinator.Report", &ReportRequest{id, phase}, &response)
+}
