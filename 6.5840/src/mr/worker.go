@@ -28,7 +28,8 @@ func ihash(key string) int {
 }
 
 // main/mrworker.go calls this function.
-func Worker(mapF func(string, string) []KeyValue, reduceF func(string, []string) string) {
+func Worker(mapF func(string, string) []KeyValue,
+	reduceF func(string, []string) string) {
 
 	// Your worker implementation here.
 	// 轮训做任务
