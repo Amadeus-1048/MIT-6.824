@@ -103,6 +103,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	return false
 }
 
+// 参数是一个mapF和一个心跳response，mapF接收一个文件名和其内容，返回一个键值对切片
 func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse) {
 	// 读取输入文件
 	fileName := response.FilePath
@@ -119,7 +120,7 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 	kva := mapF(fileName, string(content))
 	// 分配键值对到中间存储
 	intermediates := make([][]KeyValue, response.NReduce) // 根据 Reduce 任务的数量（response.NReduce），创建一个二维切片
-	for _, kv := range kva {                              // 切片用来存储每个 Reduce 任务的中间键值对。
+	for _, kv := range kva {                              // 二维切片用来存储每个 Reduce 任务的中间键值对。
 		index := ihash(kv.Key) % response.NReduce // 对每个键进行哈希和取模后确定这个键值对应该分配给哪一个 Reduce 任务
 		intermediates[index] = append(intermediates[index], kv)
 	}
@@ -148,6 +149,7 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 	doReport(response.ID, MapPhase)
 }
 
+// 参数是一个reduceF和一个心跳response，reduceF接收一个key和其count(其实就是1)组成的切片，返回count之和
 func doReduceTask(reduceF func(string, []string) string, response *HeartbeatResponse) {
 	var kva []KeyValue                   // 存储从多个文件中解码得到的键值对
 	for i := 0; i < response.NMap; i++ { // i 遍历的是所有 map 任务的输出文件
@@ -172,8 +174,8 @@ func doReduceTask(reduceF func(string, []string) string, response *HeartbeatResp
 	}
 	var buf bytes.Buffer
 	for key, values := range results {
-		output := reduceF(key, values)
-		fmt.Fprintf(&buf, "%v %v\n", key, output)
+		output := reduceF(key, values)            // 获得一个key的count之和
+		fmt.Fprintf(&buf, "%v %v\n", key, output) // 写入buf
 	}
 	atomicWriteFile(generateReduceResultFileName(response.ID), &buf)
 	doReport(response.ID, ReducePhase)
