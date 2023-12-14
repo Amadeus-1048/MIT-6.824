@@ -114,13 +114,13 @@ func (c *Coordinator) schedule() {
 	c.initMapPhase() // 该函数设置了当前的任务阶段为MapPhase，并初始化一个任务列表（tasks），每个文件对应一个Map任务
 	// 无限循环
 	for { // 使用了select语句来等待多个通道（channel）的输入
-		select { // select语句让Coordinator能响应不同类型的事件，例如心跳（heartbeatCh）和任务完成报告（reportCh）
+		select { // select语句让Coordinator能响应不同类型的事件：心跳（heartbeatCh）和任务完成报告（reportCh）
 		// 处理心跳信号
-		case msg := <-c.heartbeatCh: // 协调器收到来自工作节点的心跳信号时，它会检查当前的阶段并分配任务，或者告诉工作节点任务已经完成
+		case msg := <-c.heartbeatCh: // Coordinator收到来自Worker的心跳时，它会检查当前的阶段并分配任务，或告诉Worker任务已经完成
 			// 检查状态和任务分配
 			if c.phase == CompletePhase { // 表示所有任务都已完成
 				msg.response.JobType = CompleteJob
-			} else if c.selectTask(msg.response) { // 分配一个新任务给工作节点
+			} else if c.selectTask(msg.response) { // 分配一个新任务给Worker
 				// 任务和阶段转换
 				switch c.phase { // 根据当前的阶段来决定接下来的行动
 				case MapPhase: // Map任务已完成，将初始化Reduce阶段
@@ -149,7 +149,7 @@ func (c *Coordinator) schedule() {
 	}
 }
 
-// 检查任务队列，根据任务的状态和执行情况动态分配任务给请求者，并更新其响应信息
+// 返回allFinished：检查任务队列，根据任务的状态和执行情况动态分配任务给请求者，并更新其响应信息
 func (c *Coordinator) selectTask(response *HeartbeatResponse) bool {
 	allFinished, hasNewJob := true, false // 判断是否所有任务都完成   判断是否有新任务可以分配
 	for id, task := range c.tasks {       // 遍历协调器中所有的任务
