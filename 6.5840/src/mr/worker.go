@@ -34,7 +34,7 @@ func Worker(mapF func(string, string) []KeyValue,
 	// Your worker implementation here.
 	// 轮训做任务
 	for {
-		response := doHeartbeat()
+		response := doHeartbeat() // Coordinator.schedule() 会为每个心跳信号分配任务
 		log.Printf("Worker: receive coordinator's heartbeat %v \n", response)
 		switch response.JobType {
 		case MapJob:
@@ -48,7 +48,6 @@ func Worker(mapF func(string, string) []KeyValue,
 		default:
 			panic(fmt.Sprintf("unexpected jobType %v", response.JobType))
 		}
-
 	}
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
@@ -105,7 +104,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 
 // 参数是一个mapF和一个心跳response，mapF接收一个文件名和其内容，返回一个键值对切片
 func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse) {
-	// 读取输入文件
+	// 读取一个文件
 	fileName := response.FilePath
 	file, err := os.Open(fileName)
 	if err != nil {
@@ -128,7 +127,7 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 	var wg sync.WaitGroup
 	for index, intermediate := range intermediates {
 		wg.Add(1)
-		go func(index int, intermediate []KeyValue) { // 对每个中间结果，启动一个并发的 Go 协程进行处理
+		go func(index int, intermediate []KeyValue) { // 为每个Reduce任务启动一个协程处理中间结果
 			defer wg.Done()
 			intermediateFilePath := generateMapResultFileName(response.ID, index) // response.ID 即 mapID， index 即 reduceID
 			var buf bytes.Buffer                                                  // 暂存编码后的数据

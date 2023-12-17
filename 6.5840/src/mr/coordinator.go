@@ -43,18 +43,17 @@ type Coordinator struct {
 
 // Your code here -- RPC handlers for the worker to call.
 
-// 处理工作节点的心跳信号
-// 心跳信号是工作节点定期发送给协调器的，以证明它们仍然活着，并可能请求新的工作
+// Worker定期发送心跳信号给Coordinator，以证明它们仍然活着，并可能请求新的工作
 func (c *Coordinator) Heartbeat(request *HeartbeatRequest, response *HeartbeatResponse) error {
 	msg := heartbeatMsg{
 		response: response,
 		ok:       make(chan struct{}),
 	}
-	// 将 msg 推送到处理管道中，从而让负责心跳处理的逻辑能够接手并开始处理心跳
+	// 将 msg 推送到heartbeatCh管道中，从而让负责处理心跳的函数能接手并开始处理心跳
 	c.heartbeatCh <- msg // 如果没有其他协程准备从这个通道接收数据，这个发送操作将会阻塞，直到另一个协程准备好从该通道接收数据
 	<-msg.ok
 	// msg.ok 是一个无缓冲的通道，这意味着发送操作和接收操作必须同时发生，否则会阻塞等待对方。
-	// 当处理心跳的协程完成了对心跳消息的处理（可能是更新内部状态、调度任务等），它会向 msg.ok 通道发送一个信号（空结构体）。
+	// 当处理心跳的协程完成了对心跳消息的处理，它会向 msg.ok 通道发送一个信号（空结构体）。
 	// 这个信号不携带任何数据（因为它是一个 struct{}），它的目的仅仅是通知 Heartbeat 方法可以继续执行
 
 	// <-msg.ok 这行代码的作用是同步：它确保了 Heartbeat 方法在返回前等待心跳消息被实际处理。
@@ -149,7 +148,7 @@ func (c *Coordinator) schedule() {
 	}
 }
 
-// 返回allFinished：检查任务队列，根据任务的状态和执行情况动态分配任务给请求者，并更新其响应信息
+// 返回allFinished：检查任务队列，根据其状态和执行情况动态分配任务给请求者，并更新其响应信息
 func (c *Coordinator) selectTask(response *HeartbeatResponse) bool {
 	allFinished, hasNewJob := true, false // 是否所有任务都完成   是否有新任务可以分配
 	for id, task := range c.tasks {       // 遍历Coordinator中所有的任务
@@ -157,14 +156,12 @@ func (c *Coordinator) selectTask(response *HeartbeatResponse) bool {
 		case Idle: // 意味着有任务还未被执行
 			allFinished, hasNewJob = false, true // 所有任务未全部完成，且存在新的可分配任务
 			c.tasks[id].status, c.tasks[id].startTime = Working, time.Now()
-			// response.NReduce告诉节点如何将Map阶段的输出分区，以确保输出是Reduce任务可以接受的
-			// c.nReduce：存储了Reduce任务的总数量，这个值在Coordinator初始化时就已经设定，并且在整个MapReduce任务过程中是不变的
+			// c.nReduce：存储了Reduce任务的总数量，在Coordinator初始化时就已设定好且在整个MapReduce任务过程中是不变的
 			response.NReduce, response.ID = c.nReduce, id // 在response中设置NReduce（Reduce任务的总数）和任务的ID
-			if c.phase == MapPhase {                      // 根据当前的phase（阶段），设置任务类型（MapJob或ReduceJob）以及相应的文件路径或nMap（Map任务的数量）
+			if c.phase == MapPhase {                      // 根据当前的phase设置任务类型（MapJob或ReduceJob）以及相应的文件路径或nMap（Map任务的数量）
 				response.JobType, response.FilePath = MapJob, c.files[id]
 			} else {
-				// 将Map阶段完成的任务总数赋值给NMap字段。在Reduce阶段，这个信息对工作节点至关重要
-				// 因为它告诉Worker在Reduce任务中需要处理的中间文件数量。每个Map任务可能会生成一个中间文件
+				// 将Map阶段完成的任务总数赋值给NMap字段，它将告诉Worker在Reduce任务中需要处理的中间文件数量
 				response.JobType, response.NMap = ReduceJob, c.nMap // nMap是map任务的数量
 			}
 		case Working: // 有任务正在进行中
