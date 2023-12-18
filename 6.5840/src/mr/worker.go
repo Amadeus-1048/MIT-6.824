@@ -151,8 +151,8 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 // 参数是一个reduceF和一个心跳response，reduceF接收一个key和其count(其实就是1)组成的切片，返回count之和
 func doReduceTask(reduceF func(string, []string) string, response *HeartbeatResponse) {
 	var kva []KeyValue                   // 存储从多个文件中解码得到的键值对
-	for i := 0; i < response.NMap; i++ { // i 遍历的是所有 map 任务的输出文件
-		filePath := generateMapResultFileName(i, response.ID) // i 是 mapID， response.Id 是当前的 reduceID，在处理所有 map 任务产生的文件时保持不变，因为它是指当前正在执行的这个 reduce 任务
+	for i := 0; i < response.NMap; i++ { // 遍历所有map任务的输出文件
+		filePath := generateMapResultFileName(i, response.ID) // i 是 mapID， response.Id 是当前的 reduceID
 		file, err := os.Open(filePath)
 		if err != nil {
 			log.Fatalf("cannot open %v", filePath)
