@@ -152,7 +152,7 @@ func doMapTask(mapF func(string, string) []KeyValue, response *HeartbeatResponse
 func doReduceTask(reduceF func(string, []string) string, response *HeartbeatResponse) {
 	var kva []KeyValue                   // 存储从多个文件中解码得到的键值对
 	for i := 0; i < response.NMap; i++ { // 遍历所有map任务的输出文件
-		filePath := generateMapResultFileName(i, response.ID) // i 是 mapID， response.Id 是当前的 reduceID
+		filePath := generateMapResultFileName(i, response.ID) // i 是 mapID， response.ID 是当前的 reduceID
 		file, err := os.Open(filePath)
 		if err != nil {
 			log.Fatalf("cannot open %v", filePath)
@@ -187,11 +187,11 @@ func doHeartbeat() *HeartbeatResponse {
 	return &response
 }
 
-// 工作节点向协调器（Coordinator）报告任务的完成情况
-// 通过 RPC 向协调器发送一个包含任务ID和任务阶段的请求，并接收回应
-// 这个机制是分布式计算中任务状态管理和协调的重要部分，确保协调器能够跟踪任务的进度，并根据工作节点的报告来调整其调度策略
+// Worker 向 Coordinator 报告任务的完成情况
+// 通过 RPC 向Coordinator发送一个包含任务ID和任务阶段的请求，并接收回应
+// 这个机制是分布式计算中任务状态管理和协调的重要部分，确保Coordinator能够跟踪任务的进度，并根据Worker的报告来调整其调度策略
 func doReport(id int, phase SchedulePhase) {
-	// 告诉协调器哪个特定的任务已经完成
+	// 告诉Coordinator哪个特定的任务已经完成
 	reportRequest := ReportRequest{id, phase}
 	// 存放远程调用的响应结果
 	response := ReportResponse{}

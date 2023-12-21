@@ -47,14 +47,15 @@ type Coordinator struct {
 func (c *Coordinator) Heartbeat(request *HeartbeatRequest, response *HeartbeatResponse) error {
 	msg := heartbeatMsg{
 		response: response,
-		ok:       make(chan struct{}),
+		ok:       make(chan struct{}), // 是一个无缓冲的通道，即发送操作和接收操作必须同时发生，否则会阻塞等待对方
 	}
 	// 将 msg 推送到heartbeatCh管道中，从而让负责处理心跳的函数能接手并开始处理心跳
-	c.heartbeatCh <- msg // 如果没有其他协程准备从这个通道接收数据，这个发送操作将会阻塞，直到另一个协程准备好从该通道接收数据
-	<-msg.ok
-	// msg.ok 是一个无缓冲的通道，这意味着发送操作和接收操作必须同时发生，否则会阻塞等待对方。
-	// 当处理心跳的协程完成了对心跳消息的处理，它会向 msg.ok 通道发送一个信号（空结构体）。
+	// 如果没有其他协程从这个通道接收数据，这个发送操作将会阻塞，直到一个协程从该通道接收数据
+	c.heartbeatCh <- msg
+
+	// 当处理心跳的协程完成了对心跳消息的处理，它会向 msg.ok 通道发送一个信号（空结构体）
 	// 这个信号不携带任何数据（因为它是一个 struct{}），它的目的仅仅是通知 Heartbeat 方法可以继续执行
+	<-msg.ok
 
 	// <-msg.ok 这行代码的作用是同步：它确保了 Heartbeat 方法在返回前等待心跳消息被实际处理。
 	// 只有当处理协程显式地向 msg.ok 通道发送一个信号时，这个等待才会解除，
@@ -81,7 +82,7 @@ func (c *Coordinator) initMapPhase() {
 		c.tasks[index] = Task{
 			fileName: file,
 			id:       index,
-			status:   Idle, // 表示这个任务目前还没有被分配出去, 状态设置为待处理
+			status:   Idle, // 这个任务目前还没有被分配出去, 状态设置为待处理
 		}
 	}
 }
@@ -93,7 +94,7 @@ func (c *Coordinator) initReducePhase() {
 	for i := 0; i < c.nReduce; i++ {
 		c.tasks[i] = Task{
 			id:     i,
-			status: Idle,
+			status: Idle, // 这个任务目前还没有被分配出去, 状态设置为待处理
 		}
 	}
 }
@@ -102,24 +103,25 @@ func (c *Coordinator) initReducePhase() {
 func (c *Coordinator) initCompletePhase() {
 	c.phase = CompletePhase
 	// 用来通知其他正在等待任务完成的Goroutine，MapReduce任务已经全部结束了。
-	// 因此，如果有一个Goroutine在doneCh上等待（<-c.doneCh），它将接收到这个信号并可以继续执行。
+	// 在doneCh上等待（<-c.doneCh）的Goroutine将接收到这个信号并继续执行。
 	c.doneCh <- struct{}{}
 }
 
-// 用于初始化和管理不同阶段的任务分配和监控
-// 是MapReduce框架中协调器（Coordinator）的核心功能
+// 用于初始化和管理不同阶段的任务分配和监控，是MapReduce框架中Coordinator的核心功能
 func (c *Coordinator) schedule() {
 	// 初始化Map任务
-	c.initMapPhase() // 该函数设置了当前的任务阶段为MapPhase，并初始化一个任务列表（tasks），每个文件对应一个Map任务
+	c.initMapPhase() // 设置当前的任务阶段为MapPhase，并初始化一个任务列表（tasks），每个文件对应一个Map任务
+
 	// 无限循环
-	for { // 使用了select语句来等待多个channel的输入
+	for {
+		// select语句等待多个channel的输入
 		select { // select语句让Coordinator能响应不同类型的事件：心跳（heartbeatCh）和任务完成报告（reportCh）
 		// 处理心跳信号
 		case msg := <-c.heartbeatCh: // Coordinator收到来自Worker的心跳时，它会检查当前的阶段并分配任务，或告诉Worker任务已经完成
 			// 检查状态和任务分配
 			if c.phase == CompletePhase { // 表示所有任务都已完成
 				msg.response.JobType = CompleteJob
-			} else if c.selectTask(msg.response) { // 分配新的任务，返回值用来检验所有任务的完成状态
+			} else if c.selectTask(msg.response) { // 分配新的任务，返回值用来检验所有任务是否完成
 				//  阶段转换
 				switch c.phase { // 根据当前的阶段来决定接下来的行动
 				case MapPhase: // Map任务已完成，将初始化Reduce阶段
@@ -138,7 +140,7 @@ func (c *Coordinator) schedule() {
 			// 发送确认给工作节点
 			msg.ok <- struct{}{} // 确认心跳已处理，任务分配或状态更新完成
 		// 处理任务完成报告
-		case msg := <-c.reportCh: // 从工作节点接收到任务完成的报告
+		case msg := <-c.reportCh: // 从Worker接收到任务完成的报告
 			if msg.request.Phase == c.phase { // 报告msg的阶段与当前阶段相同
 				log.Printf("Coordinator: Worker has executed task %v \n", msg.request)
 				c.tasks[msg.request.ID].status = Finished // 更新对应任务的状态
