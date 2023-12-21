@@ -219,7 +219,7 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 	// Your code here.
 	// doneCh是一个带有一个缓冲的通道，带有缓冲的通道是非阻塞的，直到其缓冲区填满。
-	// 缓冲区大小为1，意味着协调者可以发送一个完成信号，而不用担心阻塞，如果已经有一个信号在通道中了，发送者将会阻塞
+	// 缓冲区大小为1，意味着Coordinator可以发送一个完成信号，而不用担心阻塞，如果已经有一个信号在通道中了，发送者将会阻塞
 	<-c.doneCh
 	// 一旦c.doneCh通道接收到信号，这个方法就会返回true，表示整个MapReduce作业已经完成
 	return true
