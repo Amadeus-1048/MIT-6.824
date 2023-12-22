@@ -234,8 +234,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		files:       files,
 		nReduce:     nReduce,
 		nMap:        len(files),              // 每个文件对应一个map任务
-		heartbeatCh: make(chan heartbeatMsg), // 接收来自工作节点的心跳消息
-		reportCh:    make(chan reportMsg),    // 接收工作节点完成任务后的报告消息
+		heartbeatCh: make(chan heartbeatMsg), // 接收来自Worker的心跳消息
+		reportCh:    make(chan reportMsg),    // 接收Worker完成任务后的报告消息
 		doneCh:      make(chan struct{}, 1),  // 在整个作业完成时发送信号，缓冲大小为1，允许发送一个信号而不阻塞
 	}
 	// 初始化服务器
