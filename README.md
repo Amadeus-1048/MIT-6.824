@@ -2,6 +2,7 @@
 
 ## 进度
 
-- [ ] MapReduce
+- [x] MapReduce
   - [x] 通过 test
-  - [ ] 总结、复盘
+  - [x] 总结、复盘
+- [ ] Raft
