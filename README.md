@@ -11,4 +11,5 @@
   - [x] 阅读[官网介绍](https://raft.github.io/)
   - [x] 阅读[可视化过程](https://thesecretlivesofdata.com/raft/)
   - [ ] 阅读[论文](https://pdos.csail.mit.edu/6.824/papers/raft-extended.pdf)
+    - [x] 先简单的看一遍
   - [x] 阅读课程的[Lab提示](https://pdos.csail.mit.edu/6.824/labs/lab-raft.html)
