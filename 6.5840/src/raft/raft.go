@@ -51,11 +51,14 @@ type ApplyMsg struct {
 
 // A Go object implementing a single Raft peer.
 type Raft struct {
-	mu        sync.Mutex          // Lock to protect shared access to this peer's state
-	peers     []*labrpc.ClientEnd // RPC end points of all peers
-	persister *Persister          // Object to hold this peer's persisted state
-	me        int                 // this peer's index into peers[]
-	dead      int32               // set by Kill()
+	// 保护对 Raft 结构体中共享数据的访问，确保在多个协程操作这些数据时的线程安全。
+	mu sync.Mutex // Lock to protect shared access to this peer's state
+	// 存储所有节点（peers）的 RPC 端点，使当前节点能够与集群中的其他节点通信。
+	peers []*labrpc.ClientEnd // RPC end points of all peers
+	// 用于持久化存储节点的状态，如当前任期号、投票信息和日志条目。这确保了即使节点崩溃重启，也能恢复其状态
+	persister *Persister // Object to hold this peer's persisted state
+	me        int        // this peer's index into peers[]   存储当前节点在 peers 数组中的索引，即当前节点的唯一标识
+	dead      int32      // 标记节点是否已经被关闭， set by Kill()
 
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
@@ -71,15 +74,16 @@ type Raft struct {
 	logs        []Entry // 节点的日志条目数组，日志条目包含命令以及它们被提交时的任期号
 
 	// Volatile state on all servers
-	commitIndex int
-	lastApplied int
+	commitIndex int // 已知被提交的最新的日志条目的索引
+	lastApplied int // 已经被应用到状态机的最新的日志条目的索引
 
 	// Volatile state on leaders
-	nextIndex  []int
-	matchIndex []int
+	nextIndex  []int // 对于每个节点，需要发送给它的下一个日志条目的索引
+	matchIndex []int // 对于每个节点，已经复制到该节点的最新日志条目的索引
 
-	electionTimer  *time.Timer
-	heartbeatTimer *time.Timer
+	// Timer
+	electionTimer  *time.Timer // 用于触发选举的计时器。如果在超时时间内没有收到leader的心跳，则启动新的选举
+	heartbeatTimer *time.Timer // leader用于发送心跳的计时器，以防止follower超时并启动新的选举
 }
 
 // return currentTerm and whether this server
@@ -253,18 +257,39 @@ func (rf *Raft) ticker() {
 // for any long-running work.
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
-	rf := &Raft{}
-	rf.peers = peers
-	rf.persister = persister
-	rf.me = me
+	// 创建并初始化一个 Raft 实例
+	rf := &Raft{
+		peers:          peers,
+		persister:      persister,
+		me:             me, // this peer's index into peers[]
+		dead:           0,
+		applyCh:        applyCh,
+		replicatorCond: make([]*sync.Cond, len(peers)),
+		state:          StateFollower,
+		currentTerm:    0,
+		votedFor:       -1,
+		logs:           make([]Entry, 1),
+		nextIndex:      make([]int, len(peers)),
+		matchIndex:     make([]int, len(peers)),
+		electionTimer:  time.NewTimer(RandomizedElectionTimeout()),
+		heartbeatTimer: time.NewTimer(StableHeartbeatTimeout()),
+	}
 
 	// Your initialization code here (2A, 2B, 2C).
 
 	// initialize from state persisted before a crash
+	// 从持久化存储中读取并恢复 Raft 状态。这对于在崩溃后重启节点很重要，可以从最后保存的状态继续运行。
 	rf.readPersist(persister.ReadRaftState())
+
+	// 创建一个新的条件变量 applyCond，与 rf 的互斥锁 mu 相关联。用于控制日志的应用。
+	rf.applyCond = sync.NewCond(&rf.mu)
+
+	// todo: 初始化日志复制相关字段
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
+
+	// todo: start applier goroutine
 
 	return rf
 }
