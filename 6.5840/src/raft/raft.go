@@ -69,6 +69,17 @@ type Raft struct {
 	currentTerm int     // 当前的任期号，用于Leader选举和日志复制
 	votedFor    int     // 当前任期内投票给的Candidate的索引。如果没有投票，则为 -1。
 	logs        []Entry // 节点的日志条目数组，日志条目包含命令以及它们被提交时的任期号
+
+	// Volatile state on all servers
+	commitIndex int
+	lastApplied int
+
+	// Volatile state on leaders
+	nextIndex  []int
+	matchIndex []int
+
+	electionTimer  *time.Timer
+	heartbeatTimer *time.Timer
 }
 
 // return currentTerm and whether this server
