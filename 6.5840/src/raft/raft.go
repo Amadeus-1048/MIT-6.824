@@ -281,15 +281,17 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// 从持久化存储中读取并恢复 Raft 状态。这对于在崩溃后重启节点很重要，可以从最后保存的状态继续运行。
 	rf.readPersist(persister.ReadRaftState())
 
-	// 创建一个新的条件变量 applyCond，与 rf 的互斥锁 mu 相关联。用于控制日志的应用。
+	// 创建条件变量 applyCond，与 rf 的互斥锁 mu 相关联。用于控制日志的应用。
 	rf.applyCond = sync.NewCond(&rf.mu)
 
 	// todo: 初始化日志复制相关字段
 
 	// start ticker goroutine to start elections
+	// 启动定时器
 	go rf.ticker()
 
 	// todo: start applier goroutine
+	// 启动应用goroutine
 
 	return rf
 }
