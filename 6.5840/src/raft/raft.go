@@ -156,8 +156,53 @@ type RequestVoteReply struct {
 }
 
 // example RequestVote RPC handler.
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+// 在选举过程中请求投票时调用
+func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteResponse) {
 	// Your code here (2A, 2B).
+
+	// 加锁和持久化
+	rf.mu.Lock()         // 锁定 Raft 节点的互斥锁。这确保了在处理请求期间 Raft 状态的一致性。
+	defer rf.mu.Unlock() // 在方法返回之前释放锁
+	defer rf.persist()   // 确保 Raft 节点的当前状态在处理完请求后被持久化。
+
+	// 日志打印（调试用）   打印节点在处理投票请求之前和之后的状态
+	defer DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,"+
+		"firstLog %v,lastLog %v} before processing requestVoteRequest %v and reply requestVoteResponse %v",
+		rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied,
+		rf.getFirstLog(), rf.getLastLog(), request, response)
+
+	// 投票决策
+	if request.Term < rf.currentTerm || // 如果请求中的任期号小于当前节点的任期号,
+		// 或者当前节点在当前任期已经投票给了其他候选人，则拒绝投票
+		(request.Term == rf.currentTerm && rf.votedFor != -1 && rf.votedFor != request.CandidateId) {
+		response.Term = rf.currentTerm
+		response.VoteGranted = false
+		return
+	}
+
+	// 检查任期号
+	if request.Term > rf.currentTerm {
+		// 如果请求中的任期号大于当前节点的任期号，当前节点需要更新自己的任期号，并变回follower状态，重置已投票状态
+		// todo : 变回follower状态
+		rf.currentTerm = request.Term
+		rf.votedFor = -1
+	}
+
+	// todo : 检查日志是否最新
+	if false {
+		// 检查候选人的日志是否至少和自己的一样新。如果不是，则拒绝投票
+		response.Term = rf.currentTerm
+		response.VoteGranted = false
+		return
+	}
+
+	// 投票给候选人
+	rf.votedFor = request.CandidateId                   // 已经通过了所有检查，投票给发起请求的候选人
+	rf.electionTimer.Reset(RandomizedElectionTimeout()) // 重置选举计时器（避免在已经投票的情况下启动新的选举）
+	response.Term = rf.currentTerm
+	response.VoteGranted = true // 在响应中表明已授予投票
+
+	return
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -246,6 +291,14 @@ func (rf *Raft) ticker() {
 	}
 }
 
+func (rf *Raft) getFirstLog() Entry {
+	return rf.logs[0]
+}
+
+func (rf *Raft) getLastLog() Entry {
+	return rf.logs[len(rf.logs)-1]
+}
+
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
@@ -288,10 +341,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start ticker goroutine to start elections
 	// 启动定时器
-	go rf.ticker()
+	go rf.ticker() // 用来触发 heartbeat timeout 和 election timeout
 
 	// todo: start applier goroutine
 	// 启动应用goroutine
-
+	// 用来往 applyCh 中 push 提交的日志并保证 exactly once
 	return rf
 }
