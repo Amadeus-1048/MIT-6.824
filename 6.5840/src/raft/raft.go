@@ -313,6 +313,35 @@ func (rf *Raft) isLogUpToDate(term, index int) bool { // term, index: 候选人�
 	return false
 }
 
+func (rf *Raft) ChangeState(state NodeState) {
+	// 如果节点已经处于请求的状态，则无需进行任何操作
+	if state == rf.state {
+		return
+	}
+	// 打印状态变化（调试用）
+	DPrintf("{Node %d} changes state from %d to %d in term %d",
+		rf.me, rf.state, state, rf.currentTerm)
+	// 将节点的状态更新为新的状态
+	rf.state = state
+	// 根据新状态执行操作
+	switch state {
+	case StateFollower:
+		rf.heartbeatTimer.Stop()                            // 停止心跳定时器
+		rf.electionTimer.Reset(RandomizedElectionTimeout()) // 重置选举定时器（设置随机超时，以防止选举冲突）
+	case StateCandidate:
+	// No specific action for candidate
+	// 候选者的行为通常在其他地方实现，如启动选举
+	case StateLeader:
+		lastLog := rf.getLastLog()
+		for i := 0; i < len(rf.peers); i++ {
+			// 初始化 matchIndex 和 nextIndex, 用于跟踪日志复制进度
+			rf.matchIndex[i], rf.nextIndex[i] = 0, lastLog.Index+1
+		}
+		rf.electionTimer.Stop()                           // 停止选举定时器
+		rf.heartbeatTimer.Reset(StableHeartbeatTimeout()) // 重置心跳定时器, Leader通过定期向Followers发送心跳信息维持其统治
+	}
+}
+
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays

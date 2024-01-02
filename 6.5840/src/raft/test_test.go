@@ -1268,3 +1268,8 @@ func TestSnapshotInit2D(t *testing.T) {
 	cfg.one(rand.Int(), servers, true)
 	cfg.end()
 }
+
+func Test_amadeus(t *testing.T) {
+	fmt.Printf("{Term:%v,CandidateId:%d}",
+		"123", 456)
+}
