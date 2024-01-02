@@ -188,8 +188,8 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 		rf.votedFor = -1
 	}
 
-	// todo : 检查日志是否最新
-	if false {
+	// 检查日志是否最新
+	if !rf.isLogUpToDate(request.LastLogTerm, request.LastLogIndex) {
 		// 检查候选人的日志是否至少和自己的一样新。如果不是，则拒绝投票
 		response.Term = rf.currentTerm
 		response.VoteGranted = false
@@ -297,6 +297,20 @@ func (rf *Raft) getFirstLog() Entry {
 
 func (rf *Raft) getLastLog() Entry {
 	return rf.logs[len(rf.logs)-1]
+}
+
+// used by RequestVote to judge which log is newer
+// 在处理投票请求时判断candidate的日志是否足够新
+func (rf *Raft) isLogUpToDate(term, index int) bool { // term, index: 候选人的最后日志条目的任期号和索引
+	lastLog := rf.getLastLog() // 获取当前节点的最后一个日志条目
+	// 判断候选人的日志是否至少和当前节点的日志一样新
+	// 如果候选人的最后日志条目的任期号大于当前节点的当前任期号，则认为候选人的日志是更新的
+	// 如果候选人的最后日志条目的任期号与当前节点相同，但日志条目的索引大于等于当前节点的最后日志条目的索引，
+	// 则也认为候选人的日志是至少和当前节点一样新的。
+	if term > rf.currentTerm || (term == lastLog.Index && index >= lastLog.Index) {
+		return true
+	}
+	return false
 }
 
 // the service or tester wants to create a Raft server. the ports
