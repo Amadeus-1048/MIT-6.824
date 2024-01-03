@@ -359,14 +359,30 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+// ticker 协程会定期收到两个 timer 的到期事件。
+// 如果是 election timer 到期，则发起一轮选举；
+// 如果是 heartbeat timer 到期且节点是 leader，则发起一轮心跳。
 func (rf *Raft) ticker() {
-	for rf.killed() == false {
-
+	for rf.killed() == false { // 循环直到节点被停止
 		// Your code here (2A)
 		// Check if a leader election should be started.
-
-		// pause for a random amount of time between 50 and 350
-		// milliseconds.
+		select { // 使用 select 语句来等待两个计时器中的任何一个到期
+		case <-rf.electionTimer.C: // 选举计时器到期
+			rf.mu.Lock()                                        // 锁定自身状态
+			rf.ChangeState(StateCandidate)                      // 切换到候选者状态
+			rf.currentTerm += 1                                 // 增加当前任期号
+			rf.StartElection()                                  // 发起新一轮选举
+			rf.electionTimer.Reset(RandomizedElectionTimeout()) // 重置选举计时器为一个随机超时时长（防止选举冲突）
+			rf.mu.Unlock()                                      // 解锁状态
+		case <-rf.heartbeatTimer.C: // 心跳计时器到期
+			rf.mu.Lock()
+			if rf.state == StateLeader { // 如果当前状态是领导者，则广播一轮心跳
+				rf.BroadHeartbeat(true)
+				rf.heartbeatTimer.Reset(StableHeartbeatTimeout()) // 重置心跳计时器为一个稳定的超时时长
+			}
+			rf.mu.Unlock()
+		}
+		// pause for a random amount of time between 50 and 350 milliseconds.
 		ms := 50 + (rand.Int63() % 300)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
