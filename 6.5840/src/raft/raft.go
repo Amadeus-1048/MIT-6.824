@@ -183,7 +183,7 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 	// 检查任期号
 	if request.Term > rf.currentTerm {
 		// 如果请求中的任期号大于当前节点的任期号，当前节点需要更新自己的任期号，并变回follower状态，重置已投票状态
-		// todo : 变回follower状态
+		rf.ChangeState(StateFollower)
 		rf.currentTerm = request.Term
 		rf.votedFor = -1
 	}
@@ -380,13 +380,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// 创建条件变量 applyCond，与 rf 的互斥锁 mu 相关联。用于控制日志的应用。
 	rf.applyCond = sync.NewCond(&rf.mu)
 
-	// todo: 初始化日志复制相关字段
+	// todo 初始化日志复制相关字段
 
 	// start ticker goroutine to start elections
 	// 启动定时器
 	go rf.ticker() // 用来触发 heartbeat timeout 和 election timeout
 
-	// todo: start applier goroutine
+	// todo start applier goroutine
 	// 启动应用goroutine
 	// 用来往 applyCh 中 push 提交的日志并保证 exactly once
 	return rf
