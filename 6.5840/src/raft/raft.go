@@ -232,9 +232,90 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 // capitalized all field names in structs passed over RPC, and
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+func (rf *Raft) sendRequestVote(server int, request *RequestVoteRequest, response *RequestVoteResponse) bool {
+	ok := rf.peers[server].Call("Raft.RequestVote", request, response)
 	return ok
+}
+
+// 发起新的领导者选举
+func (rf *Raft) StartElection() {
+	// 生成投票请求
+	request := rf.genRequestVoteRequest()
+	// 初始化变量和更新状态
+	grantVotes := 1     // 节点首先给自己投票
+	rf.votedFor = rf.me // 表示当前节点给自己投票
+	rf.persist()        // 保存当前节点的最新状态
+	// 向其他节点发送投票请求
+	for peer := range rf.peers { // 遍历所有节点
+		if peer == rf.me { // 跳过当前节点，因为它已经给自己投票
+			continue
+		}
+		go func(peer int) { // 为每个节点启动一个协程来发送投票请求
+			// 发送投票请求并处理响应
+			response := &RequestVoteResponse{}
+			if rf.sendRequestVote(peer, request, response) { // 通过 RPC 向其他节点发送请求并接收响应
+				// 锁定并处理投票结果
+				rf.mu.Lock() // 在处理投票响应时，锁定 Raft 节点以确保对状态的修改是线程安全的
+				defer rf.mu.Unlock()
+				DPrintf("{Node %v} receives RequestVoteResponse %v "+
+					"from {Node %v} after sending RequestVoteRequest %v in term %v",
+					rf.me, response, peer, request, rf.currentTerm)
+				// 确保当前节点任期没有变化并且仍然处于候选者状态时才处理投票结果
+				if rf.currentTerm == request.Term && rf.state == StateCandidate {
+					if response.VoteGranted {
+						grantVotes += 1                   // 获得投票，则增加 grantedVotes 计数
+						if grantVotes > len(rf.peers)/2 { // 获得超过半数节点的投票，则当前节点成为新的领导者
+							DPrintf("{Node %v} receives majority votes in term %v",
+								rf.me, rf.currentTerm)
+							rf.ChangeState(StateLeader) // 赢得选举后，切换到领导者状态
+							// todo 广播
+							// 通过 BroadcastHeartbeat 发送心跳信息
+						}
+					} else if response.Term > rf.currentTerm { // 收到的响应中任期号比当前节点更高，说明存在更新的领导者
+						DPrintf("{Node %v} finds a new leader {Node %v} with term %v "+
+							"and steps down in term %v", rf.me, peer, response.Term, rf.currentTerm)
+						rf.ChangeState(StateFollower)  // 当前节点应切换回追随者状态
+						rf.currentTerm = response.Term // 并更新自己的任期号
+						rf.votedFor = -1
+						rf.persist()
+					}
+				}
+			}
+		}(peer)
+	}
+}
+
+// 生成投票请求
+func (rf *Raft) genRequestVoteRequest() *RequestVoteRequest {
+	// 生成一个新的投票请求。这个请求包含当前节点的状态，例如任期号和日志信息，用于请求其他节点的投票。
+	lastLog := rf.getLastLog()
+	request := &RequestVoteRequest{
+		Term:         rf.currentTerm,
+		CandidateId:  rf.me,
+		LastLogTerm:  lastLog.Term,
+		LastLogIndex: lastLog.Index,
+	}
+	return request
+}
+
+// 广播心跳信号或触发日志复制。接受一个布尔值 isHeartBeat，用于决定是发送心跳还是触发日志复制
+func (rf *Raft) BroadHeartbeat(isHeartbeat bool) {
+	for peer := range rf.peers { // 遍历集群中的所有节点
+		if peer == rf.me {
+			continue // 节点不需要给自己发送心跳或复制日志
+		}
+		if isHeartbeat { // 当前操作是为了发送心跳信号
+			// todo 发送心跳
+			// 心跳是空的日志条目，用来维持领导者的权威和防止追随者发起不必要的选举
+			// need sending at once to maintain leadership
+		} else { // 当前操作是为了触发日志复制
+			// just signal replicator goroutine to send entries in batch
+			// todo
+			// 给每个追随者节点发送信号给与该节点相关的 replicatorCond 条件变量
+			// 这种机制用于日志条目的批量发送，允许合并多个日志条目以提高效率
+		}
+	}
+
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
