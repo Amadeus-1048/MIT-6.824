@@ -206,6 +206,60 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 	return
 }
 
+// AppendEntries 附加日志条目（Append Entries）RPC。
+// 领导者（Leader）使用此 RPC 来复制日志条目到其他节点（Follower）
+func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
+	// 加锁和持久化
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	defer rf.persist()
+	// 检查任期号
+	if request.Term < rf.currentTerm { // 如果请求中的任期号小于当前节点的任期号，则拒绝请求
+		response.Term = rf.currentTerm
+		response.Success = false
+		return
+	}
+	if request.Term > rf.currentTerm { // 如果请求中的任期号大于当前节点的任期号，则更新节点的任期号并重置投票信息
+		// 在 Raft 算法中，如果一个节点（无论是领导者、候选人还是追随者）收到的 RPC 请求中包含的任期号大于其自身的当前任期号，
+		// 这意味着存在一个更新的任期，节点之前的信息可能已经过时。在这种情况下，更新节点的任期号并重置投票信息是非常重要的
+		rf.currentTerm = request.Term
+		rf.votedFor = -1
+	}
+	// 变更状态和重置选举计时器
+	rf.ChangeState(StateFollower)                       // 无论任期号如何，都将当前节点状态更改为Follower
+	rf.electionTimer.Reset(RandomizedElectionTimeout()) // 并重置选举计时器
+
+	// 检查日志一致性
+	// 确保在执行追加日志条目之前，追随者的日志与领导者的日志在 PrevLogIndex 处是匹配的
+	if request.PrevLogIndex < rf.getFirstLog().Index { // 如果 PrevLogIndex 比追随者的日志中的第一个条目的索引还小
+		// 表明追随者缺少领导者假定其应该拥有的日志条目，或者追随者的日志已经被压缩
+		// 在这种情况下，追随者不能正确地追加新的日志条目，因为它在日志中没有足够的历史信息来确保与领导者的日志一致
+		response.Term = 0
+		response.Success = false // 表示追随者无法追加日志条目
+		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} "+
+			"because prevLogIndex %v < firstLogIndex %v",
+			rf.me, request, request.LeaderId, request.PrevLogIndex, rf.getFirstLog().Index)
+		return
+	}
+	// todo 检查领导者发送的 PrevLogTerm 和 PrevLogIndex 是否与当前日志匹配。如果不匹配，返回 false 并设置响应中的冲突信息
+
+	// 追加日志条目
+	firstLogIndex := rf.getFirstLog().Index
+	for index, entry := range request.Entries { // 遍历请求中的日志条目
+		if entry.Index-firstLogIndex >= len(rf.logs) || // 如果在当前节点的日志中不存在或任期号不匹配
+			rf.logs[entry.Index-firstLogIndex].Term != entry.Term {
+			// todo	追加或覆盖这些日志条目
+			break
+		}
+	}
+	// todo 更新节点的提交索引
+	// 更新当前节点的 commitIndex（已提交日志的最高索引），这是基于领导者的 LeaderCommit
+
+	// 设置成功响应
+	response.Term = request.Term
+	response.Success = true
+}
+
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
