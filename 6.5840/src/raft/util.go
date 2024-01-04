@@ -69,3 +69,15 @@ func StableHeartbeatTimeout() time.Duration {
 func RandomizedElectionTimeout() time.Duration {
 	return time.Duration(ElectionTimeout+globalRand.Intn(ElectionTimeout)) * time.Millisecond
 }
+
+// shrinkEntriesArray 是对 Raft 日志条目切片的内存优化措施。
+// 当检测到切片只使用了一小部分分配的内存时，通过创建一个更小的切片并复制现有元素，可以减少内存的使用
+func shrinkEntriesArray(entries []Entry) []Entry {
+	const lenMultiple = 2                        // 用于判断切片的当前长度是否小于其容量的一定比例（即容量的一半）
+	if len(entries)*lenMultiple < cap(entries) { // 切片的长度小于其容量的一半，意味着切片正在浪费一半以上的分配空间
+		newEntries := make([]Entry, len(entries)) // 创建一个新的切片 newEntries，其长度与 entries 当前长度相同
+		copy(newEntries, entries)
+		return newEntries
+	}
+	return entries
+}

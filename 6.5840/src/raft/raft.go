@@ -214,7 +214,7 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 	defer rf.mu.Unlock()
 	defer rf.persist()
 	// 检查任期号
-	if request.Term < rf.currentTerm { // 如果请求中的任期号小于当前节点的任期号，则拒绝请求
+	if request.Term < rf.currentTerm { // 如果请求中的任期号小于当前节点的任期号，说明已经过期，拒绝请求
 		response.Term = rf.currentTerm
 		response.Success = false
 		return
@@ -241,14 +241,37 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 			rf.me, request, request.LeaderId, request.PrevLogIndex, rf.getFirstLog().Index)
 		return
 	}
-	// todo 检查领导者发送的 PrevLogTerm 和 PrevLogIndex 是否与当前日志匹配。如果不匹配，返回 false 并设置响应中的冲突信息
-
+	// 检查领导者发送的 PrevLogTerm 和 PrevLogIndex 是否与当前日志匹配。如果不匹配，返回 false 并设置响应中的冲突信息
+	if !rf.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
+		response.Term = rf.currentTerm
+		response.Success = false
+		// 确定冲突条目的索引和任期号。 用于帮助领导者快速定位到日志不一致的位置，从而高效地修复日志不一致的问题
+		lastIndex := rf.getLastLog().Index
+		if lastIndex < request.PrevLogIndex { // 如果追随者的日志比领导者请求的 PrevLogIndex 短.
+			// 说明其缺少领导者期望的日志条目
+			response.ConflictTerm = -1             // 将 ConflictTerm 设置为 -1（表示不存在的任期号）
+			response.ConflictIndex = lastIndex + 1 // 设置 ConflictIndex 为追随者日志的下一个索引位置
+		} else { // 如果追随者的日志包含 PrevLogIndex，则找出在该位置及之前发生冲突的最早任期号和索引
+			firstIndex := rf.getFirstLog().Index
+			response.ConflictTerm = rf.logs[request.PrevLogIndex-firstIndex].Term
+			index := request.PrevLogIndex - 1
+			for index >= firstIndex && rf.logs[index-firstIndex].Term == response.ConflictTerm {
+				index-- // 发生冲突的最早索引 通过查找第一个任期号与 PrevLogIndex 处任期号不同的条目来实现
+			}
+			response.ConflictIndex = index
+		}
+	}
 	// 追加日志条目
-	firstLogIndex := rf.getFirstLog().Index
+	// 在追随者的日志中追加或替换来自领导者的日志条目，以确保日志的一致性
+	firstLogIndex := rf.getFirstLog().Index     // 获取第一个日志条目的索引，因为日志数组可能不是从索引 0 开始的
 	for index, entry := range request.Entries { // 遍历请求中的日志条目
-		if entry.Index-firstLogIndex >= len(rf.logs) || // 如果在当前节点的日志中不存在或任期号不匹配
-			rf.logs[entry.Index-firstLogIndex].Term != entry.Term {
-			// todo	追加或覆盖这些日志条目
+		if entry.Index-firstLogIndex >= len(rf.logs) || // 检查要追加的日志条目的索引是否在追随者当前日志的范围外
+			rf.logs[entry.Index-firstLogIndex].Term != entry.Term { // 或指定索引处的日志条目的任期号与领导者的不一致
+			// 需要在该位置追加或替换日志条目
+			// rf.logs[:entry.Index-firstIndex] ：先保留直到新条目开始索引之前的所有日志条目
+			// request.Entries[index:]... ：然后追加从当前条目开始直到请求中的最后一个条目
+			// 使用 shrinkEntriesArray 函数来减少内存占用，特别是在删除大量旧日志条目的时候
+			rf.logs = shrinkEntriesArray(append(rf.logs[:entry.Index-firstLogIndex], request.Entries[index:]...))
 			break
 		}
 	}
@@ -463,6 +486,18 @@ func (rf *Raft) isLogUpToDate(term, index int) bool { // term, index: 候选人�
 		return true
 	}
 	return false
+}
+
+// used by AppendEntries to judge whether log is matched
+// 判断接收到的 AppendEntries 请求中的特定日志条目（由任期号 term 和索引 index 指定）是否与当前节点的日志匹配
+func (rf *Raft) matchLog(term, index int) bool {
+	// 检查提供的索引 index 是否在当前节点日志数组的有效范围内
+	// 如果索引大于当前节点日志的最后一个条目的索引，那么匹配失败
+	// 如果索引有效，接下来检查索引位置的日志条目的任期号是否与提供的 term 相等。
+	// 为了得到正确的日志条目，需要从索引 index 中减去第一个日志条目的索引，
+	// 因为日志数组可能不是从索引 0 开始的（特别是在实现日志压缩时）
+	// 如果这两个条件都满足（即索引在有效范围内，并且任期号匹配），则函数返回 true 表示日志匹配；否则返回 false
+	return index <= rf.getLastLog().Index && rf.logs[index-rf.getFirstLog().Index].Term == term
 }
 
 func (rf *Raft) ChangeState(state NodeState) {

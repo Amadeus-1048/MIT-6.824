@@ -28,12 +28,12 @@ func (response RequestVoteResponse) String() string {
 
 // Arguments of AppendEntries RPC
 type AppendEntriesRequest struct {
-	Term         int     // leader’s term
+	Term         int     // leader’s term  当前任期
 	LeaderId     int     // so follower can redirect clients
-	PrevLogIndex int     // index of log entry immediately preceding new ones
-	PrevLogTerm  int     // term of prevLogIndex entry
-	LeaderCommit int     // leader’s commitIndex
-	Entries      []Entry // log entries to store (empty for heartbeat; may send more than one for efficiency)
+	PrevLogIndex int     // index of log entry immediately preceding new ones	前一个日志的 index
+	PrevLogTerm  int     // term of prevLogIndex entry	前一个日志的 term
+	LeaderCommit int     // leader’s commitIndex	已提交的日志 index
+	Entries      []Entry // log entries to store (empty for heartbeat; may send more than one for efficiency) 将要追加的日志列表（空则成为心跳包）
 }
 
 func (request AppendEntriesRequest) String() string {
