@@ -52,7 +52,7 @@ type ApplyMsg struct {
 // A Go object implementing a single Raft peer.
 type Raft struct {
 	// 保护对 Raft 结构体中共享数据的访问，确保在多个协程操作这些数据时的线程安全。
-	mu sync.Mutex // Lock to protect shared access to this peer's state
+	mu sync.RWMutex // Lock to protect shared access to this peer's state
 	// 存储所有节点（peers）的 RPC 端点，使当前节点能够与集群中的其他节点通信。
 	peers []*labrpc.ClientEnd // RPC end points of all peers
 	// 用于持久化存储节点的状态，如当前任期号、投票信息和日志条目。这确保了即使节点崩溃重启，也能恢复其状态
@@ -281,6 +281,24 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 	// 设置成功响应
 	response.Term = request.Term
 	response.Success = true
+}
+
+// replicateOneRound 领导者节点向指定的追随者节点（peer）发送日志复制或快照安装的请求
+func (rf *Raft) replicateOneRound(peer int) {
+	// 检查节点状态
+	rf.mu.RLock()                // 使用读锁定来保护对状态的访问
+	if rf.state != StateLeader { // 检查当前节点是否是领导者
+		rf.mu.RUnlock() // 如果不是领导者，则解锁并直接返回，因为只有领导者才能发送日志复制或快照安装的请求
+		return
+	}
+	// 确定发送日志复制还是快照安装
+	preLogIndex := rf.nextIndex[peer] - 1     // 领导者认为追随者需要的下一个日志条目的前一个索引
+	if preLogIndex < rf.getFirstLog().Index { // 如果 prevLogIndex 小于领导者日志中的第一个条目的索引，
+		// z这意味着追随者落后太多，无法通过普通的日志复制来更新
+		// todo 领导者将发送一个快照安装请求
+	} else { // 否则，领导者将发送一个日志复制请求
+		// todo
+	}
 }
 
 // example code to send a RequestVote RPC to a server.
