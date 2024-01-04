@@ -81,3 +81,28 @@ func shrinkEntriesArray(entries []Entry) []Entry {
 	}
 	return entries
 }
+
+// 插入排序 递增
+func insertionSort(s []int) {
+	// 将第一待排序序列第一个元素看做一个有序序列，把第二个元素到最后一个元素当成是未排序序列。
+	// 从头到尾依次扫描未排序序列，将扫描到的每个元素插入有序序列的适当位置。
+	for i := 1; i < len(s); i++ { // 未排序序列
+		for j := i; j > 0 && s[j] < s[j-1]; j-- { // 在已排序序列中从后向前扫描，找到相应位置并插入
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
+}
+
+func Min(x, y int) int {
+	if x > y {
+		return y
+	}
+	return x
+}
+
+func Max(x, y int) int {
+	if x < y {
+		return y
+	}
+	return x
+}

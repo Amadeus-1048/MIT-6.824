@@ -301,6 +301,40 @@ func (rf *Raft) replicateOneRound(peer int) {
 	}
 }
 
+// updateCommitIndexForLeader 在领导者节点上计算并更新 commitIndex
+func (rf *Raft) updateCommitIndexForLeader(peer int) {
+	n := len(rf.matchIndex)
+	srt := make([]int, n)
+	copy(srt, rf.matchIndex)
+	insertionSort(srt)
+	newCommitIndex := srt[n-(n/2+1)] // 所有节点中大多数已复制日志条目的最小索引。在排序后的数组中，这是中位数的索引值
+	if newCommitIndex > rf.commitIndex {
+		// only update commitIndex for current term's log
+		if rf.matchLog(rf.currentTerm, newCommitIndex) { // 检查新的 commitIndex 是否对应当前任期的日志条目
+			// 因为 Raft 只允许在当前任期内提交日志条目
+			DPrintf("{Node %d} update commitIndex from %d to %d with matchIndex %v in term %d",
+				rf.me, rf.commitIndex, newCommitIndex, rf.matchIndex, rf.currentTerm)
+			rf.commitIndex = newCommitIndex // 更新 commitIndex
+			rf.applyCond.Signal()           // 并通过条件变量 applyCond 通知可能在等待应用日志的协程
+		} else {
+			DPrintf("{Node %d} can not update commitIndex from %d "+
+				"because the term of newCommitIndex %d is not equal to currentTerm %d",
+				rf.me, rf.commitIndex, newCommitIndex, rf.currentTerm)
+		}
+	}
+}
+
+// updateCommitIndexForFollower 在追随者节点上根据领导者的 leaderCommit 来更新 commitIndex。
+func (rf *Raft) updateCommitIndexForFollower(leaderCommit int) {
+	newCommitIndex := Min(leaderCommit, rf.getLastLog().Index)
+	if newCommitIndex > rf.commitIndex {
+		DPrintf("{Node %d} update commitIndex from %d to %d with leaderCommit %d in term %d",
+			rf.me, rf.commitIndex, newCommitIndex, leaderCommit, rf.currentTerm)
+		rf.commitIndex = newCommitIndex
+		rf.applyCond.Signal() // 通过条件变量 applyCond 通知可能在等待应用日志的协程
+	}
+}
+
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
