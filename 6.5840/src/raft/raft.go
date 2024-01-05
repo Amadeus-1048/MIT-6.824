@@ -302,7 +302,7 @@ func (rf *Raft) replicateOneRound(peer int) {
 }
 
 // updateCommitIndexForLeader 在领导者节点上计算并更新 commitIndex
-func (rf *Raft) updateCommitIndexForLeader(peer int) {
+func (rf *Raft) updateCommitIndexForLeader() {
 	n := len(rf.matchIndex) // matchIndex 数组记录了每个追随者最后一个与领导者匹配的日志条目的索引
 	srt := make([]int, n)
 	copy(srt, rf.matchIndex)
@@ -452,6 +452,52 @@ func (rf *Raft) genAppendEntriesRequest(prevLogIndex int) *AppendEntriesRequest 
 		LeaderCommit: rf.commitIndex,                        // 领导者的 commitIndex，告诉追随者领导者已提交的日志条目的最高索引
 	}
 	return request
+}
+
+// handleAppendEntriesResponse 领导者处理日志复制响应
+func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequest, response *AppendEntriesResponse) {
+	// 检查领导者状态和任期匹配
+	if rf.state == StateLeader && rf.currentTerm == request.Term { // 检查当前节点是否仍是领导者，并且处理的响应是针对当前任期内发出的请求
+		if response.Success { // 如果响应成功，说明追随者成功复制了日志条目
+			// 更新对应追随者的 matchIndex 和 nextIndex
+			rf.matchIndex[peer] = request.PrevLogIndex + len(request.Entries) // 更新为最后一个复制的日志条目的索引
+			rf.nextIndex[peer] = rf.matchIndex[peer] + 1                      // 更新为下一个要发送的日志条目的索引
+			rf.updateCommitIndexForLeader()                                   // 尝试更新 commitIndex
+		} else { // 处理失败的响应
+			if response.Term > rf.currentTerm { // 响应包含的任期号大于当前任期号，这表明存在一个更新的领导者
+				rf.ChangeState(StateFollower)  // 当前节点应变成追随者
+				rf.currentTerm = response.Term // 并更新任期号
+				rf.votedFor = -1
+				rf.persist()
+			} else if response.Term == rf.currentTerm { // 任期号与当前任期号相同,意味着需要解决日志不一致的问题
+				// 领导者需要调整下次向该追随者发送日志条目的起始位置
+				// 设置追随者的下一个日志索引
+				rf.nextIndex[peer] = response.ConflictIndex // ConflictIndex 由追随者提供，表示它在自己的日志中发现不匹配的第一个日志条目的索引
+				// 解决日志不一致
+				if response.ConflictTerm != -1 { //  ConflictTerm 是追随者报告的冲突日志条目的任期号
+					firstIndex := rf.getFirstLog().Index
+					// 领导者遍历自己的日志，从 PrevLogIndex 开始向前查找，直到它达到日志数组的第一个元素。
+					// 目的是在领导者日志中找到与 ConflictTerm 相同的任期号的最后一个日志条目
+					for i := request.PrevLogIndex; i >= firstIndex; i-- {
+						// 一旦找到这样的条目，将 nextIndex 更新为该条目的下一个索引（即 i + 1），
+						// 这意味着下一次日志复制将从这个新的索引开始。
+						// 这样做是为了在下一次尝试时跳过所有已知的不匹配的任期号的日志条目
+						// 这段代码的目的是快速地定位到日志不一致的原点，从而减少领导者和追随者之间解决日志不一致所需的通信往返次数。
+						// 通过这种方式，领导者可以更高效地与追随者同步日志，即使在面临日志不一致的情况下也能迅速恢复一致性。
+						if rf.logs[i-firstIndex].Term == response.ConflictTerm {
+							rf.nextIndex[peer] = i + 1
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+	DPrintf("{Node %v}'s state is "+
+		"{state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} "+
+		"after handling AppendEntriesResponse %v for AppendEntriesRequest %v",
+		rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied,
+		rf.getFirstLog(), rf.getLastLog(), response, request)
 }
 
 // 广播心跳信号或触发日志复制。接受一个布尔值 isHeartBeat，用于决定是发送心跳还是触发日志复制
