@@ -371,6 +371,11 @@ func (rf *Raft) sendRequestVote(server int, request *RequestVoteRequest, respons
 	return ok
 }
 
+func (rf *Raft) sendAppendEntries(server int, request *AppendEntriesRequest, response *AppendEntriesResponse) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", request, response)
+	return ok
+}
+
 // 发起新的领导者选举
 func (rf *Raft) StartElection() {
 	// 生成投票请求
@@ -428,6 +433,23 @@ func (rf *Raft) genRequestVoteRequest() *RequestVoteRequest {
 		CandidateId:  rf.me,
 		LastLogTerm:  lastLog.Term,
 		LastLogIndex: lastLog.Index,
+	}
+	return request
+}
+
+// genAppendEntriesRequest 用于Leader发送一个日志复制请求，参数表示将要发送的日志条目中的前一个日志条目的索引
+func (rf *Raft) genAppendEntriesRequest(prevLogIndex int) *AppendEntriesRequest {
+	// 获取追随者日志中第一个条目的索引
+	firstIndex := rf.getFirstLog().Index                               // 日志数组可能不是从索引 0 开始的（特别是在实现日志压缩时）
+	entries := make([]Entry, len(rf.logs[prevLogIndex+1-firstIndex:])) // 即将要发送的日志条目（前一条日志索引+1到最后）
+	copy(entries, rf.logs[prevLogIndex+1-firstIndex:])
+	request := &AppendEntriesRequest{
+		Term:         rf.currentTerm,                        // 设置请求的 Term 为领导者的当前任期
+		LeaderId:     rf.me,                                 // 领导者自身的节点 ID
+		PrevLogIndex: prevLogIndex,                          // 这些日志条目前一个条目的索引
+		PrevLogTerm:  rf.logs[prevLogIndex-firstIndex].Term, // prevLogIndex 所在条目的任期号
+		Entries:      entries,                               // 要复制的日志条目
+		LeaderCommit: rf.commitIndex,                        // 领导者的 commitIndex，告诉追随者领导者已提交的日志条目的最高索引
 	}
 	return request
 }
