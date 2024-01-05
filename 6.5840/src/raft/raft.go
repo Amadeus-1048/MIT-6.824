@@ -303,11 +303,11 @@ func (rf *Raft) replicateOneRound(peer int) {
 
 // updateCommitIndexForLeader 在领导者节点上计算并更新 commitIndex
 func (rf *Raft) updateCommitIndexForLeader(peer int) {
-	n := len(rf.matchIndex)
+	n := len(rf.matchIndex) // matchIndex 数组记录了每个追随者最后一个与领导者匹配的日志条目的索引
 	srt := make([]int, n)
 	copy(srt, rf.matchIndex)
 	insertionSort(srt)
-	newCommitIndex := srt[n-(n/2+1)] // 所有节点中大多数已复制日志条目的最小索引。在排序后的数组中，这是中位数的索引值
+	newCommitIndex := srt[n-(n/2+1)] // 数组的中位数索引代表了所有节点中大多数已复制日志条目的最小索引。
 	if newCommitIndex > rf.commitIndex {
 		// only update commitIndex for current term's log
 		if rf.matchLog(rf.currentTerm, newCommitIndex) { // 检查新的 commitIndex 是否对应当前任期的日志条目
@@ -326,8 +326,12 @@ func (rf *Raft) updateCommitIndexForLeader(peer int) {
 
 // updateCommitIndexForFollower 在追随者节点上根据领导者的 leaderCommit 来更新 commitIndex。
 func (rf *Raft) updateCommitIndexForFollower(leaderCommit int) {
-	newCommitIndex := Min(leaderCommit, rf.getLastLog().Index)
+	// 如果 leaderCommit < rf.getLastLog().Index，意味着追随者的日志落后于领导者
+	// 在后续的 AppendEntries 请求中，领导者将发送缺失的日志条目，以便追随者可以追上领导者的日志状态
+	newCommitIndex := Min(leaderCommit, rf.getLastLog().Index) // 为了防止追随者提交尚未复制的日志条目
 	if newCommitIndex > rf.commitIndex {
+		// 如果 newCommitIndex < rf.commitIndex，意味着追随者已经接收并应用了领导者发送的所有日志条目，
+		// 或者领导者发送的日志还没有追上追随者已有的日志
 		DPrintf("{Node %d} update commitIndex from %d to %d with leaderCommit %d in term %d",
 			rf.me, rf.commitIndex, newCommitIndex, leaderCommit, rf.currentTerm)
 		rf.commitIndex = newCommitIndex
