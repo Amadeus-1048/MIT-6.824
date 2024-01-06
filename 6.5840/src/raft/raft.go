@@ -460,8 +460,8 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 	if rf.state == StateLeader && rf.currentTerm == request.Term { // 检查当前节点是否仍是领导者，并且处理的响应是针对当前任期内发出的请求
 		if response.Success { // 如果响应成功，说明追随者成功复制了日志条目
 			// 更新对应追随者的 matchIndex 和 nextIndex
-			rf.matchIndex[peer] = request.PrevLogIndex + len(request.Entries) // 更新为最后一个复制的日志条目的索引
-			rf.nextIndex[peer] = rf.matchIndex[peer] + 1                      // 更新为下一个要发送的日志条目的索引
+			rf.matchIndex[peer] = request.PrevLogIndex + len(request.Entries) // 更新最后一个复制的日志条目的索引
+			rf.nextIndex[peer] = rf.matchIndex[peer] + 1                      // 更新下一个要发送的日志条目的索引
 			rf.updateCommitIndexForLeader()                                   // 尝试更新 commitIndex
 		} else { // 处理失败的响应
 			if response.Term > rf.currentTerm { // 响应包含的任期号大于当前任期号，这表明存在一个更新的领导者
@@ -474,7 +474,7 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 				// 设置追随者的下一个日志索引
 				rf.nextIndex[peer] = response.ConflictIndex // ConflictIndex 由追随者提供，表示它在自己的日志中发现不匹配的第一个日志条目的索引
 				// 解决日志不一致
-				if response.ConflictTerm != -1 { //  ConflictTerm 是追随者报告的冲突日志条目的任期号
+				if response.ConflictTerm != -1 { //  追随者在自己的日志中找到了一个与领导者日志不匹配的特定任期号
 					firstIndex := rf.getFirstLog().Index
 					// 领导者遍历自己的日志，从 PrevLogIndex 开始向前查找，直到它达到日志数组的第一个元素。
 					// 目的是在领导者日志中找到与 ConflictTerm 相同的任期号的最后一个日志条目

@@ -47,8 +47,8 @@ func (request AppendEntriesRequest) String() string {
 type AppendEntriesResponse struct {
 	Term          int  // currentTerm, for leader to update itself
 	Success       bool // true if follower contained entry matching prevLogIndex and prevLogTerm
-	ConflictIndex int
-	ConflictTerm  int
+	ConflictIndex int  // 领导者应从该索引开始发送日志条目以解决冲突
+	ConflictTerm  int  // PreLog位置发生冲突时，追随者在该位置的log term
 }
 
 func (response AppendEntriesResponse) String() string {
