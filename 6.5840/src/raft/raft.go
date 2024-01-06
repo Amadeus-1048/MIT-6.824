@@ -293,11 +293,20 @@ func (rf *Raft) replicateOneRound(peer int) {
 	}
 	// 确定发送日志复制还是快照安装
 	preLogIndex := rf.nextIndex[peer] - 1     // 领导者认为追随者需要的下一个日志条目的前一个索引
-	if preLogIndex < rf.getFirstLog().Index { // 如果 prevLogIndex 小于领导者日志中的第一个条目的索引，
-		// z这意味着追随者落后太多，无法通过普通的日志复制来更新
+	if preLogIndex < rf.getFirstLog().Index { // prevLogIndex 小于领导者日志中的第一个条目的索引，意味着追随者落后太多
+		// 无法通过普通的日志复制来更新，只能使用快照
 		// todo 领导者将发送一个快照安装请求
-	} else { // 否则，领导者将发送一个日志复制请求
-		// todo
+
+	} else { // 普通的日志复制就可以
+		// 领导者发送一个日志复制请求
+		request := rf.genAppendEntriesRequest(preLogIndex)
+		rf.mu.RUnlock()
+		response := new(AppendEntriesResponse)
+		if rf.sendAppendEntries(peer, request, response) { // 发送请求
+			rf.mu.Lock()
+			rf.handleAppendEntriesResponse(peer, request, response) // 处理响应
+			rf.mu.Unlock()
+		}
 	}
 }
 
@@ -622,6 +631,10 @@ func (rf *Raft) matchLog(term, index int) bool {
 	// 因为日志数组可能不是从索引 0 开始的（特别是在实现日志压缩时）
 	// 如果这两个条件都满足（即索引在有效范围内，并且任期号匹配），则函数返回 true 表示日志匹配；否则返回 false
 	return index <= rf.getLastLog().Index && rf.logs[index-rf.getFirstLog().Index].Term == term
+}
+
+func (rf *Raft) appendNewEntry(command any) bool {
+
 }
 
 func (rf *Raft) ChangeState(state NodeState) {
