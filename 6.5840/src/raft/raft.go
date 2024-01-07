@@ -541,13 +541,25 @@ func (rf *Raft) BroadHeartbeat(isHeartbeat bool) {
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
+// 用于处理来自服务（如键值存储服务器）的命令
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
+	// 如果当前服务器不是领导者，它将返回 false，表示无法开始对命令的一致性达成过程。
+	// 如果是领导者，方法将立即开始一致性达成过程，但不保证该命令最终会被提交到 Raft 日志中，因为领导者可能会失败或失去选举。
 	index := -1
 	term := -1
 	isLeader := true
-
-	// Your code here (2B).
-
+	rf.mu.Lock() // 锁定状态，以防止在处理命令的同时状态被其他协程更改
+	defer rf.mu.Unlock()
+	if rf.state != StateLeader { // 检查当前服务器是否为领导者
+		isLeader = false
+		return index, term, isLeader
+	}
+	newLog := rf.appendNewEntry(command) // 如果当前服务器是领导者，它会将新命令作为新日志条目追加到自己的日志中。
+	DPrintf("{Node %v} receives a new command[%v] to replicate in term %v",
+		rf.me, newLog, rf.currentTerm)
+	rf.BroadHeartbeat(false) // 触发日志复制过程
+	index = newLog.Index     // 新追加日志条目的索引
+	term = newLog.Term       // 新追加日志条目的任期号
 	return index, term, isLeader
 }
 
@@ -633,8 +645,40 @@ func (rf *Raft) matchLog(term, index int) bool {
 	return index <= rf.getLastLog().Index && rf.logs[index-rf.getFirstLog().Index].Term == term
 }
 
-func (rf *Raft) appendNewEntry(command any) bool {
+// used by Start function to append a new Entry to logs
+func (rf *Raft) appendNewEntry(command any) Entry {
+	lastLog := rf.getLastLog()
+	newLog := Entry{
+		Index:   lastLog.Index + 1,
+		Term:    rf.currentTerm,
+		Command: command,
+	}
+	rf.logs = append(rf.logs, newLog)
+	rf.matchIndex[rf.me] = newLog.Index
+	rf.nextIndex[rf.me] = newLog.Index + 1
+	rf.persist()
+	return newLog
+}
 
+// used by replicator goroutine to judge whether a peer needs replicating
+// 判断给定的追随者（peer）是否需要进行日志复制
+func (rf *Raft) needReplicate(peer int) bool {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	// 首先判断当前节点是否为领导者。在 Raft 中，只有领导者节点负责向追随者发送日志复制请求。
+	// 然后追随者的最新日志索引必须小于领导者日志的最后一条条目的索引
+	// 因为这样说明追随者的日志落后于领导者，需要进行日志复制
+	if rf.state == StateLeader && rf.matchIndex[peer] < rf.getLastLog().Index {
+		return true
+	}
+	return false
+}
+
+// HasLogInCurrentTerm is used by upper layer to detect whether there are any logs in current term
+func (rf *Raft) HasLogInCurrentTerm() bool {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	return rf.getLastLog().Term == rf.currentTerm
 }
 
 func (rf *Raft) ChangeState(state NodeState) {
