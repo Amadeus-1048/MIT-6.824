@@ -41,6 +41,7 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	CommandTerm  int
 
 	// For 2D:
 	SnapshotValid bool
@@ -716,7 +717,7 @@ func (rf *Raft) ChangeState(state NodeState) {
 
 // Replicator 用于管理特定追随者（peer）的日志复制过程。
 // 负责判断何时需要向追随者发送日志条目，并触发相应的复制操作
-func (rf *Raft) Replicator(peer int) {
+func (rf *Raft) replicator(peer int) {
 	rf.replicatorCond[peer].L.Lock()         // 锁定与特定追随者相关联的条件变量的锁
 	defer rf.replicatorCond[peer].L.Unlock() // 在方法结束时释放锁
 	// 循环检查是否需要复制
@@ -727,6 +728,45 @@ func (rf *Raft) Replicator(peer int) {
 		}
 		// 触发日志复制
 		rf.replicateOneRound(peer) // 执行一轮日志复制
+	}
+}
+
+// applier 负责将已提交的日志条目应用到上层服务，并且确保每个日志条目都被准确且恰好一次地推送到应用通道（applyCh）
+func (rf *Raft) applier() {
+	// 循环检查是否有新的日志需要应用
+	for !rf.killed() {
+		rf.mu.Lock()
+		// 检查并等待可应用的日志条目
+		// if there is no need to apply entries, just release CPU and wait other goroutine's signal if they commit new entries
+		for rf.lastApplied >= rf.commitIndex { // 如果最后应用到状态机的日志索引 大于或等于 已提交的最高日志索引
+			rf.applyCond.Wait() // 则没有新的日志条目需要应用，因此在条件变量上等待，直到其他协程提交了新的日志条目
+		}
+		// 复制需要应用的日志条目
+		firstIndex := rf.getFirstLog().Index
+		commitIndex := rf.commitIndex
+		lastApplied := rf.lastApplied
+		entries := make([]Entry, commitIndex-lastApplied) // 计算需要应用的日志条目的范围，并创建一个切片存储这些日志条目
+		copy(entries, rf.logs[lastApplied+1-firstIndex:commitIndex+1-firstIndex])
+		rf.mu.Unlock()
+		// 应用日志条目到上层服务
+		for _, entry := range entries { // 遍历 entries 切片，将每个日志条目作为 ApplyMsg 发送到 applyCh
+			rf.applyCh <- ApplyMsg{ // 触发上层服务（如键值存储服务）应用这些日志条目到其状态机
+				CommandValid: true,
+				Command:      entry.Command,
+				CommandTerm:  entry.Term,
+				CommandIndex: entry.Index,
+			}
+		}
+		// 更新 lastApplied
+		rf.mu.Lock()
+		DPrintf("{Node %v} applies entries %v-%v in term %v",
+			rf.me, rf.lastApplied, commitIndex, rf.currentTerm)
+		// use commitIndex rather than rf.commitIndex because rf.commitIndex may change during the Unlock() and Lock()
+		// use Max(rf.lastApplied, commitIndex) rather than commitIndex directly to avoid concurrently InstallSnapshot rpc causing lastApplied to rollback
+		// 更新 lastApplied 为最大的 commitIndex 值，确保不会重复应用相同的日志条目。
+		// 这里使用 Max 函数是为了防止在应用日志期间接收到快照导致 lastApplied 回滚的情况
+		rf.lastApplied = Max(rf.lastApplied, commitIndex)
+		rf.mu.Unlock()
 	}
 }
 
@@ -778,7 +818,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		if i != rf.me {
 			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{}) // 为每个追随者创建一个条件变量
 			// start replicator goroutine to replicate entries in batch
-			go rf.Replicator(i) // 并启动一个 replicator 协程，用于管理该追随者的日志复制
+			go rf.replicator(i) // 并启动一个 replicator 协程，用于管理该追随者的日志复制
 		}
 	}
 
@@ -788,6 +828,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start applier goroutine
 	// 启动 applier 协程，用于将已提交的日志条目发送到 applyCh并保证 exactly once，从而应用到上层服务的状态机中
-	// todo go rf.applier()
+	go rf.applier()
 	return rf
 }
