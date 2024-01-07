@@ -63,7 +63,7 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
-	applyCh        chan ApplyMsg // 向应用层提交已提交的日志条目
+	applyCh        chan ApplyMsg // 一个通道，向应用层提交已提交的日志条目
 	applyCond      *sync.Cond    // 当有新的日志条目被提交时，唤醒应用日志条目的协程
 	replicatorCond []*sync.Cond  // 每个follower有一个与之对应的条件变量，用于触发日志复制的协程
 	state          NodeState     // 节点当前的状态: Follower、Candidate、Leader
@@ -275,8 +275,8 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 			break
 		}
 	}
-	// todo 更新节点的提交索引
 	// 更新当前节点的 commitIndex（已提交日志的最高索引），这是基于领导者的 LeaderCommit
+	rf.updateCommitIndexForFollower(request.LeaderCommit)
 
 	// 设置成功响应
 	response.Term = request.Term
@@ -509,24 +509,24 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 		rf.getFirstLog(), rf.getLastLog(), response, request)
 }
 
-// 广播心跳信号或触发日志复制。接受一个布尔值 isHeartBeat，用于决定是发送心跳还是触发日志复制
-func (rf *Raft) BroadHeartbeat(isHeartbeat bool) {
+// BroadcastHeartbeat 领导者节点向所有追随者广播心跳信号或触发日志复制。
+// 接受一个布尔值 isHeartBeat，用于决定是发送心跳还是触发日志复制
+func (rf *Raft) BroadcastHeartbeat(isHeartbeat bool) {
 	for peer := range rf.peers { // 遍历集群中的所有节点
 		if peer == rf.me {
 			continue // 节点不需要给自己发送心跳或复制日志
 		}
 		if isHeartbeat { // 当前操作是为了发送心跳信号
-			// todo 发送心跳
 			// 心跳是空的日志条目，用来维持领导者的权威和防止追随者发起不必要的选举
 			// need sending at once to maintain leadership
+			go rf.replicateOneRound(peer)
 		} else { // 当前操作是为了触发日志复制
 			// just signal replicator goroutine to send entries in batch
-			// todo
 			// 给每个追随者节点发送信号给与该节点相关的 replicatorCond 条件变量
 			// 这种机制用于日志条目的批量发送，允许合并多个日志条目以提高效率
+			rf.replicatorCond[peer].Signal()
 		}
 	}
-
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -557,9 +557,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	newLog := rf.appendNewEntry(command) // 如果当前服务器是领导者，它会将新命令作为新日志条目追加到自己的日志中。
 	DPrintf("{Node %v} receives a new command[%v] to replicate in term %v",
 		rf.me, newLog, rf.currentTerm)
-	rf.BroadHeartbeat(false) // 触发日志复制过程
-	index = newLog.Index     // 新追加日志条目的索引
-	term = newLog.Term       // 新追加日志条目的任期号
+	rf.BroadcastHeartbeat(false) // 触发日志复制过程
+	index = newLog.Index         // 新追加日志条目的索引
+	term = newLog.Term           // 新追加日志条目的任期号
 	return index, term, isLeader
 }
 
@@ -582,6 +582,10 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+func (rf *Raft) Me() int {
+	return rf.me
+}
+
 // ticker 协程会定期收到两个 timer 的到期事件。
 // 如果是 election timer 到期，则发起一轮选举；
 // 如果是 heartbeat timer 到期且节点是 leader，则发起一轮心跳。
@@ -600,7 +604,7 @@ func (rf *Raft) ticker() {
 		case <-rf.heartbeatTimer.C: // 心跳计时器到期
 			rf.mu.Lock()
 			if rf.state == StateLeader { // 如果当前状态是领导者，则广播一轮心跳
-				rf.BroadHeartbeat(true)
+				rf.BroadcastHeartbeat(true)
 				rf.heartbeatTimer.Reset(StableHeartbeatTimeout()) // 重置心跳计时器为一个稳定的超时时长
 			}
 			rf.mu.Unlock()
@@ -710,6 +714,22 @@ func (rf *Raft) ChangeState(state NodeState) {
 	}
 }
 
+// Replicator 用于管理特定追随者（peer）的日志复制过程。
+// 负责判断何时需要向追随者发送日志条目，并触发相应的复制操作
+func (rf *Raft) Replicator(peer int) {
+	rf.replicatorCond[peer].L.Lock()         // 锁定与特定追随者相关联的条件变量的锁
+	defer rf.replicatorCond[peer].L.Unlock() // 在方法结束时释放锁
+	// 循环检查是否需要复制
+	for rf.killed() == false { // 循环会一直运行，直到该 Raft 实例被终止
+		// 等待复制信号
+		for !rf.needReplicate(peer) { // 如果当前没有需要复制到这个追随者的日志条目, 该协程会等待，直到收到复制的信号
+			rf.replicatorCond[peer].Wait() // wait方法会阻塞协程直到其他协程在相同的条件变量上调用 Signal() 或 Broadcast()
+		}
+		// 触发日志复制
+		rf.replicateOneRound(peer) // 执行一轮日志复制
+	}
+}
+
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
@@ -719,15 +739,17 @@ func (rf *Raft) ChangeState(state NodeState) {
 // tester or service expects Raft to send ApplyMsg messages.
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
+// 创建并初始化一个新的 Raft 服务器实例。
+// 设置了 Raft 服务器的初始状态，并启动了一些长时间运行的协程（goroutines）来处理选举、日志复制和日志应用等任务
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	// 创建并初始化一个 Raft 实例
 	rf := &Raft{
 		peers:          peers,
-		persister:      persister,
-		me:             me, // this peer's index into peers[]
+		persister:      persister, // 用于持久化 Raft 状态的对象
+		me:             me,        // this peer's index into peers[]
 		dead:           0,
-		applyCh:        applyCh,
+		applyCh:        applyCh, // 一个通道，用于发送应用到状态机的日志条目
 		replicatorCond: make([]*sync.Cond, len(peers)),
 		state:          StateFollower,
 		currentTerm:    0,
@@ -743,19 +765,29 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	// 从持久化存储中读取并恢复 Raft 状态。这对于在崩溃后重启节点很重要，可以从最后保存的状态继续运行。
-	rf.readPersist(persister.ReadRaftState())
+	rf.readPersist(persister.ReadRaftState()) // 如果之前有保存的状态（例如在服务器重启后），则从持久化存储中恢复这些状态
 
 	// 创建条件变量 applyCond，与 rf 的互斥锁 mu 相关联。用于控制日志的应用。
 	rf.applyCond = sync.NewCond(&rf.mu)
 
-	// todo 初始化日志复制相关字段
+	// 初始化日志复制相关字段
+	lastLog := rf.getLastLog()
+	for i := 0; i < len(peers); i++ {
+		rf.matchIndex[i] = 0
+		rf.nextIndex[i] = lastLog.Index + 1
+		if i != rf.me {
+			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{}) // 为每个追随者创建一个条件变量
+			// start replicator goroutine to replicate entries in batch
+			go rf.Replicator(i) // 并启动一个 replicator 协程，用于管理该追随者的日志复制
+		}
+	}
 
 	// start ticker goroutine to start elections
-	// 启动定时器
+	// 启动 ticker 协程，用于管理选举和发送心跳
 	go rf.ticker() // 用来触发 heartbeat timeout 和 election timeout
 
-	// todo start applier goroutine
-	// 启动应用goroutine
-	// 用来往 applyCh 中 push 提交的日志并保证 exactly once
+	// start applier goroutine
+	// 启动 applier 协程，用于将已提交的日志条目发送到 applyCh并保证 exactly once，从而应用到上层服务的状态机中
+	// todo go rf.applier()
 	return rf
 }
