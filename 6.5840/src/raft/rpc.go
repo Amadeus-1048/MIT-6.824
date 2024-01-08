@@ -55,3 +55,24 @@ func (response AppendEntriesResponse) String() string {
 	return fmt.Sprintf("{Term:%v,Success:%v,ConflictIndex:%v,ConflictTerm:%v}",
 		response.Term, response.Success, response.ConflictIndex, response.ConflictTerm)
 }
+
+type InstallSnapshotRequest struct {
+	Term              int
+	LeaderId          int
+	LastIncludedTerm  int
+	LastIncludedIndex int
+	Data              []byte
+}
+
+func (request InstallSnapshotRequest) String() string {
+	return fmt.Sprintf("{Term:%v,LeaderId:%v,LastIncludedIndex:%v,LastIncludedTerm:%v,DataSize:%v}",
+		request.Term, request.LeaderId, request.LastIncludedIndex, request.LastIncludedTerm, len(request.Data))
+}
+
+type InstallSnapshotResponse struct {
+	Term int
+}
+
+func (response InstallSnapshotResponse) String() string {
+	return fmt.Sprintf("{Term:%v}", response.Term)
+}

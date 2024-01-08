@@ -135,12 +135,34 @@ func (rf *Raft) readPersist(data []byte) {
 	// }
 }
 
+// Snapshot 在服务端触发日志压缩。index 表示快照覆盖到的日志索引，snapshot 是一个字节数组，包含了要保存的快照数据
 // the service says it has created a snapshot that has
 // all info up to and including index. this means the
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
-	// Your code here (2D).
+	// 加锁与检查索引
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	snapshotIndex := rf.getFirstLog().Index
+	if index <= snapshotIndex { // 检查传入的 index 是否 <= 当前快照的索引（snapshotIndex）
+		// 如果是，即传入的快照已经是旧的或与当前状态重叠，则返回，不进行日志压缩
+		DPrintf("{Node %v} rejects replacing log with snapshotIndex %v "+
+			"as current snapshotIndex %v is larger in term %v",
+			rf.me, index, snapshotIndex, rf.currentTerm)
+		return
+	}
+	// 压缩日志
+	rf.logs = shrinkEntriesArray(rf.logs[index-snapshotIndex:]) // 移除索引 <= index 的日志条目，保留之后的日志条目
+	rf.logs[0].Command = nil                                    // 将压缩后的第一个日志条目的命令设置为 nil，
+	// 这表示这个条目是压缩后的第一个条目，它的索引对应快照中的最后一个状态，nil 标记了一个新的快照起点
+
+	// 保存状态和快照
+	// todo 将当前的 Raft 状态和传入的快照数据一起保存到持久化存储中
+	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,"+
+		"lastApplied %v,firstLog %v,lastLog %v} after replacing log with snapshotIndex %v "+
+		"as old snapshotIndex %v is smaller", rf.me, rf.state, rf.currentTerm, rf.commitIndex,
+		rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), index, snapshotIndex)
 
 }
 
