@@ -247,6 +247,32 @@ func (rf *Raft) genInstallSnapshotRequest() *InstallSnapshotRequest {
 	return request
 }
 
+// 领导者节点处理快照安装响应的关键部分。它根据追随者的响应来更新内部状态，包括日志匹配索引。
+// 成功的响应会导致更新这些索引，从而确保领导者认为追随者的状态与自己同步。
+func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
+	// 检查状态和任期
+	if rf.state == StateLeader && rf.currentTerm == request.Term { // 检查当前节点是否仍是领导者，并且响应是针对当前任期内发出的请求
+		// 处理不同的响应情况
+		if response.Term > rf.currentTerm { // 表明存在一个更新的领导者
+			rf.ChangeState(StateFollower)
+			rf.currentTerm = response.Term
+			rf.votedFor = -1
+			rf.persist()
+		} else {
+			// 更新与该追随者相关的 matchIndex 和 nextIndex
+			// 这表示领导者认为追随者已经接收并应用了快照中包含的所有日志条目，
+			// 因此更新 matchIndex 为快照的最后包含索引，并将 nextIndex 设置为此后的下一个索引
+			rf.matchIndex[peer] = request.LastIncludedIndex
+			rf.nextIndex[peer] = request.LastIncludedIndex + 1
+		}
+	}
+	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,"+
+		"lastApplied %v,firstLog %v,lastLog %v} after handling InstallSnapshotResponse %v "+
+		"for InstallSnapshotRequest %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex,
+		rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), response, request)
+
+}
+
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 type RequestVoteArgs struct {
