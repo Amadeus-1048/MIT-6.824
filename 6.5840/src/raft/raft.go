@@ -425,8 +425,14 @@ func (rf *Raft) replicateOneRound(peer int) {
 	preLogIndex := rf.nextIndex[peer] - 1     // 领导者认为追随者需要的下一个日志条目的前一个索引
 	if preLogIndex < rf.getFirstLog().Index { // prevLogIndex 小于领导者日志中的第一个条目的索引，意味着追随者落后太多
 		// 无法通过普通的日志复制来更新，只能使用快照
-		// todo 领导者将发送一个快照安装请求
-
+		request := rf.genInstallSnapshotRequest()
+		rf.mu.RUnlock()
+		response := new(InstallSnapshotResponse)
+		if rf.sendInstallSnapshot(peer, request, response) {
+			rf.mu.Lock()
+			rf.handleInstallSnapshotResponse(peer, request, response)
+			rf.mu.Unlock()
+		}
 	} else { // 普通的日志复制就可以
 		// 领导者发送一个日志复制请求
 		request := rf.genAppendEntriesRequest(preLogIndex)
@@ -550,8 +556,7 @@ func (rf *Raft) StartElection() {
 							DPrintf("{Node %v} receives majority votes in term %v",
 								rf.me, rf.currentTerm)
 							rf.ChangeState(StateLeader) // 赢得选举后，切换到领导者状态
-							// todo 广播
-							// 通过 BroadcastHeartbeat 发送心跳信息
+							rf.BroadcastHeartbeat(true) // 通过 BroadcastHeartbeat 发送心跳信息
 						}
 					} else if response.Term > rf.currentTerm { // 收到的响应中任期号比当前节点更高，说明存在更新的领导者
 						DPrintf("{Node %v} finds a new leader {Node %v} with term %v "+
