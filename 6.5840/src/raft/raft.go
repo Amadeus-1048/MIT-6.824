@@ -199,6 +199,54 @@ func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *Insta
 	}()
 }
 
+// CondInstallSnapshot 处理由上层服务触发的快照安装请求，与直接从领导者接收快照安装请求（InstallSnapshot）不同。
+// 接收的参数为快照的任期号、索引以及快照数据。返回值表示是否接受了快照。
+func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
+	// 加锁并检查快照是否过时
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if lastIncludedIndex <= rf.commitIndex { // 快照是过时的，直接返回 false
+		return false
+	}
+	// 更新日志和状态
+	if lastIncludedIndex > rf.getLastLog().Index { // 快照索引超过了当前日志的最后索引
+		rf.logs = make([]Entry, 1) // 创建一个只包含哑元条目的新日志数组
+	} else { // 压缩现有日志以匹配快照
+		rf.logs = shrinkEntriesArray(rf.logs[lastIncludedIndex-rf.getFirstLog().Index:])
+		rf.logs[0].Command = nil
+	}
+	// 更新哑元条目的任期和索引为快照的任期和索引
+	rf.logs[0].Term = lastIncludedTerm
+	rf.logs[0].Index = lastIncludedIndex
+	// 将 lastApplied 和 commitIndex 更新为快照索引
+	rf.lastApplied = lastIncludedIndex
+	rf.commitIndex = lastIncludedIndex
+	// 保存状态和快照
+	// todo 将当前的 Raft 状态和新的快照数据保存到持久化存储中
+
+	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,"+
+		"lastApplied %v,firstLog %v,lastLog %v} after accepting the snapshot "+
+		"which lastIncludedTerm is %v, lastIncludedIndex is %v",
+		rf.me, rf.state, rf.currentTerm, rf.commitIndex,
+		rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), lastIncludedTerm, lastIncludedIndex)
+	return true // 表示快照已被接受并处理
+}
+
+// 用于在领导者节点向追随者节点发送快照安装请求。
+// 这种请求通常在追随者的日志严重落后或缺失时使用，以帮助追随者快速同步到领导者的当前状态
+func (rf *Raft) genInstallSnapshotRequest() *InstallSnapshotRequest {
+	// 获取 Raft 日志的第一个条目（firstLog），它通常是一个哑元条目，其索引和任期标记着快照的起点
+	firstLog := rf.getFirstLog()
+	request := &InstallSnapshotRequest{
+		Term:              rf.currentTerm,              // 当前领导者的任期号
+		LeaderId:          rf.me,                       // 领导者的节点 ID
+		LastIncludedIndex: firstLog.Index,              // 快照覆盖的最后一个日志条目的索引
+		LastIncludedTerm:  firstLog.Term,               // 快照覆盖的最后一个日志条目的任期号
+		Data:              rf.persister.ReadSnapshot(), // 快照数据本身，从持久化存储中读取
+	}
+	return request
+}
+
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 type RequestVoteArgs struct {
@@ -439,6 +487,10 @@ func (rf *Raft) sendRequestVote(server int, request *RequestVoteRequest, respons
 func (rf *Raft) sendAppendEntries(server int, request *AppendEntriesRequest, response *AppendEntriesResponse) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", request, response)
 	return ok
+}
+
+func (rf *Raft) sendInstallSnapshot(server int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) bool {
+	return rf.peers[server].Call("Raft.InstallSnapshot", request, response)
 }
 
 // 发起新的领导者选举
