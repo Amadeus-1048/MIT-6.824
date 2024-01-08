@@ -166,6 +166,39 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
+// InstallSnapshot 处理领导者节点发送来的安装快照请求, 在追随者节点上更新状态以匹配领导者的快照
+func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
+	// 加锁和设置响应的任期号
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	response.Term = rf.currentTerm // 设置响应的任期号为当前节点的任期号
+	// 检查请求的任期号
+	if request.Term < rf.currentTerm { // 请求中的任期号小于当前节点的任期号
+		return // 直接返回。因为这意味着请求来自一个过时的领导者。
+	}
+	if request.Term > rf.currentTerm { // 请求中的任期号大于当前节点的任期号
+		rf.currentTerm = request.Term // 更新当前节点的任期号
+		rf.votedFor = -1              // 重置投票信息
+		rf.persist()
+	}
+	// 变更节点状态并重置选举计时器
+	rf.ChangeState(StateFollower)
+	rf.electionTimer.Reset(RandomizedElectionTimeout()) // 重置选举计时器，以防止在处理快照期间发生不必要的选举
+	// 检查快照是否过时
+	if request.LastIncludedIndex <= rf.commitIndex {
+		return // 快照是过时的，不进行任何操作
+	}
+	// 异步发送快照到应用通道
+	go func() { // 启动一个新的协程来将快照信息发送到应用通道（applyCh）, 允许追随者异步地处理快照，不会阻塞当前的执行流程
+		rf.applyCh <- ApplyMsg{ // 发送的 ApplyMsg 包含快照数据以及快照的任期和索引信息
+			SnapshotValid: true,
+			Snapshot:      request.Data,
+			SnapshotTerm:  request.LastIncludedTerm,
+			SnapshotIndex: request.LastIncludedIndex,
+		}
+	}()
+}
+
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 type RequestVoteArgs struct {
