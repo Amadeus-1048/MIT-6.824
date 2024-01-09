@@ -18,6 +18,9 @@ package raft
 //
 
 import (
+	"6.5840/labgob"
+	"bytes"
+
 	//	"bytes"
 	"math/rand"
 	"sync"
@@ -94,6 +97,10 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	term = rf.currentTerm
+	isleader = rf.state == StateLeader
 	return term, isleader
 }
 
@@ -113,12 +120,23 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
+	rf.persister.Save(rf.encodeState(), rf.persister.ReadSnapshot())
 }
 
-// restore previously persisted state.
+func (rf *Raft) encodeState() []byte {
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.logs)
+	return w.Bytes()
+}
+
+// restore previously persisted state. 从持久化存储中恢复之前保存的 Raft 状态。
+// 接收一个字节切片 data，这个字节切片包含了之前持久化的 Raft 状态
 func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
-		return
+		return // 接收一个字节切片 data，这个字节切片包含了之前持久化的 Raft 状态
 	}
 	// Your code here (2C).
 	// Example:
@@ -133,6 +151,18 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	r := bytes.NewBuffer(data)    // 创建一个新的缓冲区, 并将 data 作为输入
+	d := labgob.NewDecoder(r)     // 使用该缓冲区创建一个新的解码器 d
+	var currentTerm, votedFor int // 存储解码后的状态
+	var logs []Entry
+	if d.Decode(&currentTerm) != nil || // 使用解码器 d 从缓冲区中解码 currentTerm、votedFor 和 logs
+		d.Decode(&votedFor) != nil ||
+		d.Decode(&logs) != nil {
+		DPrintf("{Node %v} restores persisted state failed", rf.me)
+	}
+	rf.currentTerm, rf.votedFor, rf.logs = currentTerm, votedFor, logs // 使用解码得到的数据更新 Raft 实例的状态
+	// there will always be at least one entry in rf.logs
+	rf.lastApplied, rf.commitIndex = rf.logs[0].Index, rf.logs[0].Index
 }
 
 // Snapshot 在服务端触发日志压缩。index 表示快照覆盖到的日志索引，snapshot 是一个字节数组，包含了要保存的快照数据
@@ -158,7 +188,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// 这表示这个条目是压缩后的第一个条目，它的索引对应快照中的最后一个状态，nil 标记了一个新的快照起点
 
 	// 保存状态和快照
-	// todo 将当前的 Raft 状态和传入的快照数据一起保存到持久化存储中
+	rf.persister.Save(rf.encodeState(), snapshot) // 将当前的 Raft 状态和传入的快照数据一起保存到持久化存储中
 	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,"+
 		"lastApplied %v,firstLog %v,lastLog %v} after replacing log with snapshotIndex %v "+
 		"as old snapshotIndex %v is smaller", rf.me, rf.state, rf.currentTerm, rf.commitIndex,
@@ -222,7 +252,7 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	rf.lastApplied = lastIncludedIndex
 	rf.commitIndex = lastIncludedIndex
 	// 保存状态和快照
-	// todo 将当前的 Raft 状态和新的快照数据保存到持久化存储中
+	rf.persister.Save(rf.encodeState(), snapshot) // 将当前的 Raft 状态和新的快照数据保存到持久化存储中
 
 	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,"+
 		"lastApplied %v,firstLog %v,lastLog %v} after accepting the snapshot "+
