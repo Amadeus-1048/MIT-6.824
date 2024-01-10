@@ -420,6 +420,7 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 			}
 			response.ConflictIndex = index
 		}
+		return
 	}
 	// 追加日志条目
 	// 在追随者的日志中追加或替换来自领导者的日志条目，以确保日志的一致性
@@ -439,7 +440,7 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 	rf.updateCommitIndexForFollower(request.LeaderCommit)
 
 	// 设置成功响应
-	response.Term = request.Term
+	response.Term = rf.currentTerm
 	response.Success = true
 }
 
