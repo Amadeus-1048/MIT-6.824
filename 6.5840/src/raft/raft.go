@@ -420,7 +420,7 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 			}
 			response.ConflictIndex = index
 		}
-		return
+		return // 漏了会导致 Test (2B): agreement after follower reconnects 失败
 	}
 	// 追加日志条目
 	// 在追随者的日志中追加或替换来自领导者的日志条目，以确保日志的一致性
