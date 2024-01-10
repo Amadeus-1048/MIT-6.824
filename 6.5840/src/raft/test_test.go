@@ -19,6 +19,7 @@ import "sync"
 // (much more than the paper's range of timeouts).
 const RaftElectionTimeout = 1000 * time.Millisecond
 
+// raft实例初始化之后建立的第一次选举
 func TestInitialElection2A(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -50,6 +51,11 @@ func TestInitialElection2A(t *testing.T) {
 	cfg.end()
 }
 
+// 在网络故障后进行的选举测试，有以下几个部分：
+// leader会被设置为网络故障，检测新的选举，并且要求在旧leader加入之后也不会扰乱选举。
+// 如果集群人数少于一半（Quorum），要求无leader被选举出来。
+// 集群人数达到条件，则可以选举。
+// 新节点的重新加入不应阻止leader的存在
 func TestReElection2A(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -90,6 +96,9 @@ func TestReElection2A(t *testing.T) {
 	cfg.end()
 }
 
+// 会开启7个节点，选出leader，再断连3个节点，
+// 要求要么现有leader还存活，要么剩下的4个选出新的leader。
+// 然后再加入3个节点，检测是不是还是只有一个leader
 func TestManyElections2A(t *testing.T) {
 	servers := 7
 	cfg := make_config(t, servers, false, false)
@@ -123,6 +132,7 @@ func TestManyElections2A(t *testing.T) {
 	cfg.end()
 }
 
+// 检查在没意外情况下是否每个提交都能在集群达成一致
 func TestBasicAgree2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -148,6 +158,8 @@ func TestBasicAgree2B(t *testing.T) {
 
 // check, based on counting bytes of RPCs, that
 // each command is sent to each peer just once.
+// 根据RPC的字节数，检查领导者每次发送日志给跟随者，在没意外发生的情况下是否出现重发现象
+// （感觉应该是检查心跳频率，控制好次数（100ms一次）或者加个计时器，当在发送是超时的时候不需要重发）
 func TestRPCBytes2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -180,6 +192,7 @@ func TestRPCBytes2B(t *testing.T) {
 }
 
 // test just failure of followers.
+// 当只有跟随者宕机时的测试
 func TestFollowerFailure2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -225,6 +238,7 @@ func TestFollowerFailure2B(t *testing.T) {
 }
 
 // test just failure of leaders.
+// 当只有领导人宕机时的测试
 func TestLeaderFailure2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -266,6 +280,7 @@ func TestLeaderFailure2B(t *testing.T) {
 
 // test that a follower participates after
 // disconnect and re-connect.
+// 当出现一个跟随着宕机，并在后面恢复时，是否会实现他的日志恢复成跟领导者一样
 func TestFailAgree2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -300,6 +315,7 @@ func TestFailAgree2B(t *testing.T) {
 	cfg.end()
 }
 
+// 当超过半数的跟随着宕机时（领导者不宕机）是否在他们恢复后能复制领导者在他们宕机时接受的日志
 func TestFailNoAgree2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false, false)
@@ -452,6 +468,7 @@ loop:
 	cfg.end()
 }
 
+// 领导人宕机，并且宕机期间有新领导人上任并接收日志，然后新领导人宕机，旧领导人上任的情况
 func TestRejoin2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
@@ -490,6 +507,9 @@ func TestRejoin2B(t *testing.T) {
 	cfg.end()
 }
 
+// 超过半数跟随者宕机，领导人在期间接收很多日志（应该丢弃的），然后宕机，
+// 原来宕机的跟随者恢复，并且新领导人接收很多日志，然后新领导人宕机，宕机后接收很多日志
+// 在这个情况下测试是否日志正确（未提交的日志会被覆盖）
 func TestBackup2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false, false)
@@ -562,6 +582,7 @@ func TestBackup2B(t *testing.T) {
 	cfg.end()
 }
 
+// 查询RPC的数量是否太高，主要就是控制重新发送的时机（比如前一个发送超时未失败，应不应该重发）或者心跳频率等策略
 func TestCount2B(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false, false)
