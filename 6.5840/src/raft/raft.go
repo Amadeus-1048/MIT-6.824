@@ -819,7 +819,7 @@ func (rf *Raft) matchLog(term, index int) bool {
 }
 
 // used by Start function to append a new Entry to logs
-func (rf *Raft) appendNewEntry(command any) Entry {
+func (rf *Raft) appendNewEntry(command interface{}) Entry {
 	lastLog := rf.getLastLog()
 	newLog := Entry{
 		Index:   lastLog.Index + 1,
