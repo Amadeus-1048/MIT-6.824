@@ -303,19 +303,7 @@ func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshot
 
 }
 
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-}
-
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-type RequestVoteReply struct {
-	// Your data here (2A).
-}
-
-// example RequestVote RPC handler.
+// RequestVote RPC handler.
 // 在选举过程中请求投票时调用
 func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteResponse) {
 	// Your code here (2A, 2B).

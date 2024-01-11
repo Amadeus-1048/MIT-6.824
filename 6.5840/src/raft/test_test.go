@@ -470,39 +470,46 @@ loop:
 
 // 领导人宕机，并且宕机期间有新领导人上任并接收日志，然后新领导人宕机，旧领导人上任的情况
 func TestRejoin2B(t *testing.T) {
-	servers := 3
-	cfg := make_config(t, servers, false, false)
-	defer cfg.cleanup()
+	servers := 3                                 // 初始化包含 3 个服务器的 Raft 集群
+	cfg := make_config(t, servers, false, false) // 创建并配置测试环境
+	defer cfg.cleanup()                          // 确保测试完成后清理环境
 
 	cfg.begin("Test (2B): rejoin of partitioned leader")
 
+	// 在所有服务器上尝试提交一个日志条目（值为 101）。
+	// 这个操作将导致一个领导者被选举出来，并且这个日志条目将被复制到多数服务器
 	cfg.one(101, servers, true)
 
 	// leader network failure
-	leader1 := cfg.checkOneLeader()
-	cfg.disconnect(leader1)
+	leader1 := cfg.checkOneLeader() // 确定当前的领导者
+	cfg.disconnect(leader1)         // 然后模拟其网络故障，使其与其他服务器失去联系
 
 	// make old leader try to agree on some entries
+	// 尽管 leader1 已经与集群断开，但仍尝试提交三个新的日志条目（值为 102、103 和 104）。
+	// 由于 leader1 已断开，这些条目不会被复制到其他服务器
 	cfg.rafts[leader1].Start(102)
 	cfg.rafts[leader1].Start(103)
 	cfg.rafts[leader1].Start(104)
 
 	// new leader commits, also for index=2
+	// 在 leader1 宕机后，集群中的另一个服务器将成为新的领导者（leader2），并成功提交一个新的日志条目（值为 103）。
+	// 这个操作验证了新领导者可以在少于 3 个服务器的情况下提交日志
 	cfg.one(103, 2, true)
 
 	// new leader network failure
-	leader2 := cfg.checkOneLeader()
-	cfg.disconnect(leader2)
+	leader2 := cfg.checkOneLeader() // 确定新的领导者（leader2），
+	cfg.disconnect(leader2)         // 然后模拟其网络故障。
 
 	// old leader connected again
-	cfg.connect(leader1)
+	cfg.connect(leader1) // 重新连接第一个领导者（leader1）到集群
 
+	// 尝试提交之前 leader1 尝试提交的一个日志条目（值为 104），验证它能否在少于 3 个服务器的情况下成功提交日志。
 	cfg.one(104, 2, true)
 
 	// all together now
-	cfg.connect(leader2)
+	cfg.connect(leader2) // 将第二个领导者（leader2）重新连接到集群
 
-	cfg.one(105, servers, true)
+	cfg.one(105, servers, true) // 尝试提交一个新的日志条目（值为 105），验证整个集群恢复后是否能正常工作
 
 	cfg.end()
 }
