@@ -122,6 +122,7 @@ func (rf *Raft) persist() {
 	// rf.persister.Save(raftstate, nil)
 	rf.persister.Save(rf.encodeState(), rf.persister.ReadSnapshot())
 	//rf.persister.Save(rf.encodeState(), nil)
+	//rf.persister.SaveRaftState(rf.encodeState())
 
 }
 
@@ -706,11 +707,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// 如果是领导者，方法将立即开始一致性达成过程，但不保证该命令最终会被提交到 Raft 日志中，因为领导者可能会失败或失去选举。
 	index := -1
 	term := -1
-	isLeader := true
+	isLeader := false
 	rf.mu.Lock() // 锁定状态，以防止在处理命令的同时状态被其他协程更改
 	defer rf.mu.Unlock()
 	if rf.state != StateLeader { // 检查当前服务器是否为领导者
-		isLeader = false
 		return index, term, isLeader
 	}
 	newLog := rf.appendNewEntry(command) // 如果当前服务器是领导者，它会将新命令作为新日志条目追加到自己的日志中。
@@ -719,6 +719,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.BroadcastHeartbeat(false) // 触发日志复制过程
 	index = newLog.Index         // 新追加日志条目的索引
 	term = newLog.Term           // 新追加日志条目的任期号
+	isLeader = true
 	return index, term, isLeader
 }
 
@@ -788,11 +789,11 @@ func (rf *Raft) isLogUpToDate(term, index int) bool { // term, index: 候选人�
 	lastLog := rf.getLastLog() // 获取当前节点的最后一个日志条目
 	// 判断候选人的日志是否至少和当前节点的日志一样新
 	// 如果候选人的最后日志条目的任期号大于当前节点最新日志的任期号，则认为候选人的日志是更新的
-	// 如果候选人的最后日志条目的任期号与当前节点相同，但日志条目的索引大于等于当前节点的最后日志条目的索引，
+	// 如果候选人的最后日志条目的任期号与当前节点最新日志的相同，但日志条目的索引大于等于当前节点的最后日志条目的索引，
 	// 则也认为候选人的日志是至少和当前节点一样新的。
 
 	// 之前写成了term > rf.currentTerm，导致test fail
-	if term > lastLog.Term || (term == lastLog.Index && index >= lastLog.Index) {
+	if term > lastLog.Term || (term == lastLog.Term && index >= lastLog.Index) {
 		return true
 	}
 	return false
@@ -894,7 +895,7 @@ func (rf *Raft) replicator(peer int) {
 // applier 负责将已提交的日志条目应用到上层服务，并且确保每个日志条目都被准确且恰好一次地推送到应用通道（applyCh）
 func (rf *Raft) applier() {
 	// 循环检查是否有新的日志需要应用
-	for !rf.killed() {
+	for rf.killed() == false {
 		rf.mu.Lock()
 		// 检查并等待可应用的日志条目
 		// if there is no need to apply entries, just release CPU and wait other goroutine's signal if they commit new entries
