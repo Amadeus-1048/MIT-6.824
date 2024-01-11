@@ -121,6 +121,8 @@ func (rf *Raft) persist() {
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
 	rf.persister.Save(rf.encodeState(), rf.persister.ReadSnapshot())
+	//rf.persister.Save(rf.encodeState(), nil)
+
 }
 
 func (rf *Raft) encodeState() []byte {
@@ -351,7 +353,6 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 	response.Term = rf.currentTerm
 	response.VoteGranted = true // 在响应中表明已授予投票
 
-	return
 }
 
 // AppendEntries 附加日志条目（Append Entries）RPC。
@@ -559,7 +560,7 @@ func (rf *Raft) StartElection() {
 		}
 		go func(peer int) { // 为每个节点启动一个协程来发送投票请求
 			// 发送投票请求并处理响应
-			response := &RequestVoteResponse{}
+			response := new(RequestVoteResponse)
 			if rf.sendRequestVote(peer, request, response) { // 通过 RPC 向其他节点发送请求并接收响应
 				// 锁定并处理投票结果
 				rf.mu.Lock() // 在处理投票响应时，锁定 Raft 节点以确保对状态的修改是线程安全的
@@ -786,10 +787,12 @@ func (rf *Raft) getLastLog() Entry {
 func (rf *Raft) isLogUpToDate(term, index int) bool { // term, index: 候选人的最后日志条目的任期号和索引
 	lastLog := rf.getLastLog() // 获取当前节点的最后一个日志条目
 	// 判断候选人的日志是否至少和当前节点的日志一样新
-	// 如果候选人的最后日志条目的任期号大于当前节点的当前任期号，则认为候选人的日志是更新的
+	// 如果候选人的最后日志条目的任期号大于当前节点最新日志的任期号，则认为候选人的日志是更新的
 	// 如果候选人的最后日志条目的任期号与当前节点相同，但日志条目的索引大于等于当前节点的最后日志条目的索引，
 	// 则也认为候选人的日志是至少和当前节点一样新的。
-	if term > rf.currentTerm || (term == lastLog.Index && index >= lastLog.Index) {
+
+	// 之前写成了term > rf.currentTerm，导致test fail
+	if term > lastLog.Term || (term == lastLog.Index && index >= lastLog.Index) {
 		return true
 	}
 	return false
