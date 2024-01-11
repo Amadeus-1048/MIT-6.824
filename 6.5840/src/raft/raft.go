@@ -20,9 +20,8 @@ package raft
 import (
 	"6.5840/labgob"
 	"bytes"
+	"fmt"
 
-	//	"bytes"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,6 +50,16 @@ type ApplyMsg struct {
 	Snapshot      []byte
 	SnapshotTerm  int
 	SnapshotIndex int
+}
+
+func (msg ApplyMsg) String() string {
+	if msg.CommandValid {
+		return fmt.Sprintf("{Command:%v,CommandTerm:%v,CommandIndex:%v}", msg.Command, msg.CommandTerm, msg.CommandIndex)
+	} else if msg.SnapshotValid {
+		return fmt.Sprintf("{Snapshot:%v,SnapshotTerm:%v,SnapshotIndex:%v}", msg.Snapshot, msg.SnapshotTerm, msg.SnapshotIndex)
+	} else {
+		panic(fmt.Sprintf("unexpected ApplyMsg{CommandValid:%v,CommandTerm:%v,CommandIndex:%v,SnapshotValid:%v,SnapshotTerm:%v,SnapshotIndex:%v}", msg.CommandValid, msg.CommandTerm, msg.CommandIndex, msg.SnapshotValid, msg.SnapshotTerm, msg.SnapshotIndex))
+	}
 }
 
 // A Go object implementing a single Raft peer.
@@ -120,9 +129,9 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
-	rf.persister.Save(rf.encodeState(), rf.persister.ReadSnapshot())
+	//rf.persister.Save(rf.encodeState(), clone(rf.persister.ReadSnapshot()))
 	//rf.persister.Save(rf.encodeState(), nil)
-	//rf.persister.SaveRaftState(rf.encodeState())
+	rf.persister.SaveRaftState(rf.encodeState())
 
 }
 
@@ -770,8 +779,8 @@ func (rf *Raft) ticker() {
 			rf.mu.Unlock()
 		}
 		// pause for a random amount of time between 50 and 350 milliseconds.
-		ms := 50 + (rand.Int63() % 300)
-		time.Sleep(time.Duration(ms) * time.Millisecond)
+		//ms := 50 + (rand.Int63() % 300)
+		//time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
 }
 
