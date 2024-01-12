@@ -210,57 +210,53 @@ const SnapShotInterval = 10
 
 // periodically snapshot raft state
 func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
-	cfg.mu.Lock()
-	rf := cfg.rafts[i]
-	cfg.mu.Unlock()
-	if rf == nil {
-		return // ???
-	}
-
+	lastApplied := 0
 	for m := range applyCh {
-		err_msg := ""
 		if m.SnapshotValid {
+			//DPrintf("Installsnapshot %v %v\n", m.SnapshotIndex, lastApplied)
 			cfg.mu.Lock()
-			err_msg = cfg.ingestSnap(i, m.Snapshot, m.SnapshotIndex)
-			cfg.mu.Unlock()
-		} else if m.CommandValid {
-			if m.CommandIndex != cfg.lastApplied[i]+1 {
-				err_msg = fmt.Sprintf("server %v apply out of order, expected index %v, got %v", i, cfg.lastApplied[i]+1, m.CommandIndex)
-			}
-
-			if err_msg == "" {
-				cfg.mu.Lock()
-				var prevok bool
-				err_msg, prevok = cfg.checkLogs(i, m)
-				cfg.mu.Unlock()
-				if m.CommandIndex > 1 && prevok == false {
-					err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
+			if cfg.rafts[i].CondInstallSnapshot(m.SnapshotTerm,
+				m.SnapshotIndex, m.Snapshot) {
+				cfg.logs[i] = make(map[int]interface{})
+				r := bytes.NewBuffer(m.Snapshot)
+				d := labgob.NewDecoder(r)
+				var v int
+				if d.Decode(&v) != nil {
+					log.Fatalf("decode error\n")
 				}
+				cfg.logs[i][m.SnapshotIndex] = v
+				lastApplied = m.SnapshotIndex
 			}
-
-			cfg.mu.Lock()
-			cfg.lastApplied[i] = m.CommandIndex
 			cfg.mu.Unlock()
-
+		} else if m.CommandValid && m.CommandIndex > lastApplied {
+			//DPrintf("apply %v lastApplied %v\n", m.CommandIndex, lastApplied)
+			cfg.mu.Lock()
+			err_msg, prevok := cfg.checkLogs(i, m)
+			cfg.mu.Unlock()
+			if m.CommandIndex > 1 && prevok == false {
+				err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
+			}
+			if err_msg != "" {
+				log.Fatalf("apply error: %v\n", err_msg)
+				cfg.applyErr[i] = err_msg
+				// keep reading after error so that Raft doesn't block
+				// holding locks...
+			}
+			lastApplied = m.CommandIndex
 			if (m.CommandIndex+1)%SnapShotInterval == 0 {
 				w := new(bytes.Buffer)
 				e := labgob.NewEncoder(w)
-				e.Encode(m.CommandIndex)
-				var xlog []interface{}
-				for j := 0; j <= m.CommandIndex; j++ {
-					xlog = append(xlog, cfg.logs[i][j])
-				}
-				e.Encode(xlog)
-				rf.Snapshot(m.CommandIndex, w.Bytes())
+				v := m.Command
+				e.Encode(v)
+				cfg.rafts[i].Snapshot(m.CommandIndex, w.Bytes())
 			}
 		} else {
-			// Ignore other types of ApplyMsg.
-		}
-		if err_msg != "" {
-			log.Fatalf("apply error: %v", err_msg)
-			cfg.applyErr[i] = err_msg
-			// keep reading after error so that Raft doesn't block
-			// holding locks...
+			// Ignore other types of ApplyMsg or old
+			// commands. Old command may never happen,
+			// depending on the Raft implementation, but
+			// just in case.
+			// DPrintf("Ignore: Index %v lastApplied %v\n", m.CommandIndex, lastApplied)
+
 		}
 	}
 }
@@ -289,24 +285,12 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 
 	cfg.mu.Lock()
 
-	cfg.lastApplied[i] = 0
-
 	// a fresh persister, so old instance doesn't overwrite
 	// new instance's persisted state.
 	// but copy old persister's content so that we always
 	// pass Make() the last persisted state.
 	if cfg.saved[i] != nil {
 		cfg.saved[i] = cfg.saved[i].Copy()
-
-		snapshot := cfg.saved[i].ReadSnapshot()
-		if snapshot != nil && len(snapshot) > 0 {
-			// mimic KV server and process snapshot now.
-			// ideally Raft should send it up on applyCh...
-			err := cfg.ingestSnap(i, snapshot, -1)
-			if err != "" {
-				cfg.t.Fatal(err)
-			}
-		}
 	} else {
 		cfg.saved[i] = MakePersister()
 	}
@@ -314,14 +298,13 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 	cfg.mu.Unlock()
 
 	applyCh := make(chan ApplyMsg)
+	go applier(i, applyCh)
 
 	rf := Make(ends, i, cfg.saved[i], applyCh)
 
 	cfg.mu.Lock()
 	cfg.rafts[i] = rf
 	cfg.mu.Unlock()
-
-	go applier(i, applyCh)
 
 	svc := labrpc.MakeService(rf)
 	srv := labrpc.MakeServer()
