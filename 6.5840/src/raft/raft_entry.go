@@ -155,3 +155,53 @@ func (rf *Raft) appendNewEntry(command interface{}) Entry {
 	rf.persist()
 	return newLog
 }
+
+// updateCommitIndexForLeader 在领导者节点上计算并更新 commitIndex
+func (rf *Raft) updateCommitIndexForLeader() {
+	n := len(rf.matchIndex) // matchIndex 数组记录了每个追随者最后一个与领导者匹配的日志条目的索引
+	srt := make([]int, n)
+	copy(srt, rf.matchIndex)
+	insertionSort(srt)
+	newCommitIndex := srt[n-(n/2+1)] // 数组的中位数索引代表了所有节点中大多数已复制日志条目的最小索引。
+	if newCommitIndex > rf.commitIndex {
+		// only update commitIndex for current term's log
+		if rf.matchLog(rf.currentTerm, newCommitIndex) { // 检查新的 commitIndex 是否对应当前任期的日志条目
+			// 因为 Raft 只允许在当前任期内提交日志条目
+			DPrintf("{Node %d} update commitIndex from %d to %d with matchIndex %v in term %d",
+				rf.me, rf.commitIndex, newCommitIndex, rf.matchIndex, rf.currentTerm)
+			rf.commitIndex = newCommitIndex // 更新 commitIndex
+			rf.applyCond.Signal()           // 并通过条件变量 applyCond 通知可能在等待应用日志的协程
+		} else {
+			DPrintf("{Node %d} can not update commitIndex from %d "+
+				"because the term of newCommitIndex %d is not equal to currentTerm %d",
+				rf.me, rf.commitIndex, newCommitIndex, rf.currentTerm)
+		}
+	}
+}
+
+// updateCommitIndexForFollower 在追随者节点上根据领导者的 leaderCommit 来更新 commitIndex。
+func (rf *Raft) updateCommitIndexForFollower(leaderCommit int) {
+	// 如果 leaderCommit < rf.getLastLog().Index，意味着追随者的日志落后于领导者
+	// 在后续的 AppendEntries 请求中，领导者将发送缺失的日志条目，以便追随者可以追上领导者的日志状态
+	newCommitIndex := Min(leaderCommit, rf.getLastLog().Index) // 为了防止追随者提交尚未复制的日志条目
+	if newCommitIndex > rf.commitIndex {
+		// 如果 newCommitIndex < rf.commitIndex，意味着追随者已经接收并应用了领导者发送的所有日志条目，
+		// 或者领导者发送的日志还没有追上追随者已有的日志
+		DPrintf("{Node %d} update commitIndex from %d to %d with leaderCommit %d in term %d",
+			rf.me, rf.commitIndex, newCommitIndex, leaderCommit, rf.currentTerm)
+		rf.commitIndex = newCommitIndex
+		rf.applyCond.Signal() // 通过条件变量 applyCond 通知可能在等待应用日志的协程
+	}
+}
+
+// used by AppendEntries to judge whether log is matched
+// 判断接收到的 AppendEntries 请求中的索引位置的日志条目的任期号是否与提供的 term 相等
+func (rf *Raft) matchLog(term, index int) bool {
+	// 检查提供的索引 index 是否在当前节点日志数组的有效范围内
+	// 如果索引大于当前节点日志的最后一个条目的索引，那么匹配失败
+	// 如果索引有效，接下来检查索引位置的日志条目的任期号是否与提供的 term 相等。
+	// 为了得到正确的日志条目，需要从索引 index 中减去第一个日志条目的索引，
+	// 因为日志数组可能不是从索引 0 开始的（特别是在实现日志压缩时）
+	// 如果这两个条件都满足（即索引在有效范围内，并且任期号匹配），则函数返回 true 表示日志匹配；否则返回 false
+	return index <= rf.getLastLog().Index && rf.logs[index-rf.getFirstLog().Index].Term == term
+}

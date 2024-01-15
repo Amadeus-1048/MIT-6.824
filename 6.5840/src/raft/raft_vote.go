@@ -1,7 +1,7 @@
 package raft
 
 // RequestVote RPC handler.
-// 在选举过程中请求投票时调用
+// Follower 在选举过程中处理投票请求时调用
 func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteResponse) {
 	// Your code here (2A, 2B).
 
@@ -16,21 +16,20 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 		rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied,
 		rf.getFirstLog(), rf.getLastLog(), request, response)
 
-	// 投票决策
+	// 投票决策（拒绝投票）
 	if request.Term < rf.currentTerm || // 如果请求中的任期号小于当前节点的任期号,
 		// 或者当前节点在当前任期已经投票给了其他候选人，则拒绝投票
 		(request.Term == rf.currentTerm && rf.votedFor != -1 && rf.votedFor != request.CandidateId) {
-		response.Term = rf.currentTerm
+		response.Term = rf.currentTerm // 当前节点的任期更大
 		response.VoteGranted = false
 		return
 	}
 
 	// 检查任期号
-	if request.Term > rf.currentTerm {
-		// 如果请求中的任期号大于当前节点的任期号，当前节点需要更新自己的任期号，并变回follower状态，重置已投票状态
-		rf.ChangeState(StateFollower)
-		rf.currentTerm = request.Term
-		rf.votedFor = -1
+	if request.Term > rf.currentTerm { // 请求中的任期号大于当前节点的任期号
+		rf.ChangeState(StateFollower) // 当前节点变回follower状态
+		rf.currentTerm = request.Term // 更新自己的任期号
+		rf.votedFor = -1              // 重置已投票状态
 	}
 
 	// 检查日志是否最新
@@ -108,4 +107,20 @@ func (rf *Raft) genRequestVoteRequest() *RequestVoteRequest {
 		LastLogIndex: lastLog.Index,
 	}
 	return request
+}
+
+// used by RequestVote to judge which log is newer
+// 在处理投票请求时判断candidate的日志是否足够新
+func (rf *Raft) isLogUpToDate(term, index int) bool { // term, index: 候选人的最后日志条目的任期号和索引
+	lastLog := rf.getLastLog() // 获取当前节点的最后一个日志条目
+	// 判断候选人的日志是否至少和当前节点的日志一样新
+	// 如果候选人的最后日志条目的任期号大于当前节点最新日志的任期号，则认为候选人的日志是更新的
+	// 如果候选人的最后日志条目的任期号与当前节点最新日志的相同，但日志条目的索引大于等于当前节点的最后日志条目的索引，
+	// 则也认为候选人的日志是至少和当前节点一样新的。
+
+	// 之前写成了term > rf.currentTerm，导致test fail
+	if term > lastLog.Term || (term == lastLog.Term && index >= lastLog.Index) {
+		return true
+	}
+	return false
 }
