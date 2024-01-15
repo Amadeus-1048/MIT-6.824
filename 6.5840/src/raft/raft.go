@@ -145,7 +145,7 @@ func (rf *Raft) getLastLog() Entry {
 }
 
 // ticker 协程会定期收到两个 timer 的到期事件。
-// 如果是 election timer 到期，则发起一轮选举；
+// 如果是 election timer 到期，则follower变为candidate，发起一轮选举；
 // 如果是 heartbeat timer 到期且节点是 leader，则发起一轮心跳。
 func (rf *Raft) ticker() {
 	for rf.killed() == false { // 循环直到节点被停止

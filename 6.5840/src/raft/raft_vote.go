@@ -48,7 +48,7 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 	response.VoteGranted = true // 在响应中表明已授予投票
 }
 
-// 发起新的领导者选举
+// StartElection : Candidate 发起新的领导者选举
 func (rf *Raft) StartElection() {
 	// 生成投票请求
 	request := rf.genRequestVoteRequest()

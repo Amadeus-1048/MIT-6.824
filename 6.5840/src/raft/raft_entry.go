@@ -1,7 +1,7 @@
 package raft
 
-// AppendEntries 附加日志条目（Append Entries）RPC。
-// 领导者（Leader）使用此 RPC 来复制日志条目到其他节点（Follower）
+// AppendEntries : 附加日志条目 RPC。
+// Leader 使用此 RPC 来复制日志条目到其他节点（Follower）
 func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
 	// 加锁和持久化
 	rf.mu.Lock()
@@ -25,9 +25,9 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 
 	// 检查日志一致性
 	// 确保在执行追加日志条目之前，追随者的日志与领导者的日志在 PrevLogIndex 处是匹配的
-	if request.PrevLogIndex < rf.getFirstLog().Index { // 如果 PrevLogIndex 比追随者的日志中的第一个条目的索引还小
-		// 表明追随者缺少领导者假定其应该拥有的日志条目，或者追随者的日志已经被压缩
-		// 在这种情况下，追随者不能正确地追加新的日志条目，因为它在日志中没有足够的历史信息来确保与领导者的日志一致
+	if request.PrevLogIndex < rf.getFirstLog().Index { // 如果 PrevLogIndex 比follower日志中的第一个条目的索引还小
+		// 表明follower缺少leader假定其应该拥有的日志条目，或者follower的日志已经被压缩
+		// 在这种情况下，follower不能正确地追加新的日志条目，因为它在日志中没有足够的历史信息来确保与领导者的日志一致
 		response.Term = 0
 		response.Success = false // 表示追随者无法追加日志条目
 		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} "+
