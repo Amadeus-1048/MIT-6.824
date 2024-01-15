@@ -77,59 +77,6 @@ func (rf *Raft) GetState() (int, bool) {
 	return term, isleader
 }
 
-// replicateOneRound 领导者节点向指定的追随者节点（peer）发送日志复制或快照安装的请求
-func (rf *Raft) replicateOneRound(peer int) {
-	// 检查节点状态
-	rf.mu.RLock()                // 使用读锁定来保护对状态的访问
-	if rf.state != StateLeader { // 检查当前节点是否是领导者
-		rf.mu.RUnlock() // 如果不是领导者，则解锁并直接返回，因为只有领导者才能发送日志复制或快照安装的请求
-		return
-	}
-	// 确定发送日志复制还是快照安装
-	preLogIndex := rf.nextIndex[peer] - 1     // 领导者认为追随者需要的下一个日志条目的前一个索引
-	if preLogIndex < rf.getFirstLog().Index { // prevLogIndex 小于领导者日志中的第一个条目的索引，意味着追随者落后太多
-		// 无法通过普通的日志复制来更新，只能使用快照
-		request := rf.genInstallSnapshotRequest()
-		rf.mu.RUnlock()
-		response := new(InstallSnapshotResponse)
-		if rf.sendInstallSnapshot(peer, request, response) {
-			rf.mu.Lock()
-			rf.handleInstallSnapshotResponse(peer, request, response)
-			rf.mu.Unlock()
-		}
-	} else { // 普通的日志复制就可以
-		// 领导者发送一个日志复制请求
-		request := rf.genAppendEntriesRequest(preLogIndex)
-		rf.mu.RUnlock()
-		response := new(AppendEntriesResponse)
-		if rf.sendAppendEntries(peer, request, response) { // 发送请求
-			rf.mu.Lock()
-			rf.handleAppendEntriesResponse(peer, request, response) // 处理响应
-			rf.mu.Unlock()
-		}
-	}
-}
-
-// BroadcastHeartbeat 领导者节点向所有追随者广播心跳信号或触发日志复制。
-// 接受一个布尔值 isHeartBeat，用于决定是发送心跳还是触发日志复制
-func (rf *Raft) BroadcastHeartbeat(isHeartbeat bool) {
-	for peer := range rf.peers { // 遍历集群中的所有节点
-		if peer == rf.me {
-			continue // 节点不需要给自己发送心跳或复制日志
-		}
-		if isHeartbeat { // 当前操作是为了发送心跳信号
-			// 心跳是空的日志条目，用来维持领导者的权威和防止追随者发起不必要的选举
-			// need sending at once to maintain leadership
-			go rf.replicateOneRound(peer)
-		} else { // 当前操作是为了触发日志复制
-			// just signal replicator goroutine to send entries in batch
-			// 给每个追随者节点发送信号给与该节点相关的 replicatorCond 条件变量
-			// 这种机制用于日志条目的批量发送，允许合并多个日志条目以提高效率
-			rf.replicatorCond[peer].Signal()
-		}
-	}
-}
-
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -189,6 +136,14 @@ func (rf *Raft) Me() int {
 	return rf.me
 }
 
+func (rf *Raft) getFirstLog() Entry {
+	return rf.logs[0]
+}
+
+func (rf *Raft) getLastLog() Entry {
+	return rf.logs[len(rf.logs)-1]
+}
+
 // ticker 协程会定期收到两个 timer 的到期事件。
 // 如果是 election timer 到期，则发起一轮选举；
 // 如果是 heartbeat timer 到期且节点是 leader，则发起一轮心跳。
@@ -216,28 +171,6 @@ func (rf *Raft) ticker() {
 		//ms := 50 + (rand.Int63() % 300)
 		//time.Sleep(time.Duration(ms) * time.Millisecond)
 	}
-}
-
-func (rf *Raft) getFirstLog() Entry {
-	return rf.logs[0]
-}
-
-func (rf *Raft) getLastLog() Entry {
-	return rf.logs[len(rf.logs)-1]
-}
-
-// used by replicator goroutine to judge whether a peer needs replicating
-// 判断给定的追随者（peer）是否需要进行日志复制
-func (rf *Raft) needReplicate(peer int) bool {
-	rf.mu.RLock()
-	defer rf.mu.RUnlock()
-	// 首先判断当前节点是否为领导者。在 Raft 中，只有领导者节点负责向追随者发送日志复制请求。
-	// 然后追随者的最新日志索引必须小于领导者日志的最后一条条目的索引
-	// 因为这样说明追随者的日志落后于领导者，需要进行日志复制
-	if rf.state == StateLeader && rf.matchIndex[peer] < rf.getLastLog().Index {
-		return true
-	}
-	return false
 }
 
 func (rf *Raft) ChangeState(state NodeState) {
@@ -282,6 +215,73 @@ func (rf *Raft) replicator(peer int) {
 		}
 		// 触发日志复制
 		rf.replicateOneRound(peer) // 执行一轮日志复制
+	}
+}
+
+// used by replicator goroutine to judge whether a peer needs replicating
+// 判断给定的追随者（peer）是否需要进行日志复制
+func (rf *Raft) needReplicate(peer int) bool {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	// 首先判断当前节点是否为领导者。在 Raft 中，只有领导者节点负责向追随者发送日志复制请求。
+	// 然后追随者的最新日志索引必须小于领导者日志的最后一条条目的索引
+	// 因为这样说明追随者的日志落后于领导者，需要进行日志复制
+	if rf.state == StateLeader && rf.matchIndex[peer] < rf.getLastLog().Index {
+		return true
+	}
+	return false
+}
+
+// replicateOneRound 领导者节点向指定的追随者节点（peer）发送日志复制或快照安装的请求
+func (rf *Raft) replicateOneRound(peer int) {
+	// 检查节点状态
+	rf.mu.RLock()                // 使用读锁定来保护对状态的访问
+	if rf.state != StateLeader { // 检查当前节点是否是领导者
+		rf.mu.RUnlock() // 如果不是领导者，则解锁并直接返回，因为只有领导者才能发送日志复制或快照安装的请求
+		return
+	}
+	// 确定发送日志复制还是快照安装
+	preLogIndex := rf.nextIndex[peer] - 1     // 领导者认为追随者需要的下一个日志条目的前一个索引
+	if preLogIndex < rf.getFirstLog().Index { // prevLogIndex 小于领导者日志中的第一个条目的索引，意味着追随者落后太多
+		// 无法通过普通的日志复制来更新，只能使用快照
+		request := rf.genInstallSnapshotRequest()
+		rf.mu.RUnlock()
+		response := new(InstallSnapshotResponse)
+		if rf.sendInstallSnapshot(peer, request, response) {
+			rf.mu.Lock()
+			rf.handleInstallSnapshotResponse(peer, request, response)
+			rf.mu.Unlock()
+		}
+	} else { // 普通的日志复制就可以
+		// 领导者发送一个日志复制请求
+		request := rf.genAppendEntriesRequest(preLogIndex)
+		rf.mu.RUnlock()
+		response := new(AppendEntriesResponse)
+		if rf.sendAppendEntries(peer, request, response) { // 发送请求
+			rf.mu.Lock()
+			rf.handleAppendEntriesResponse(peer, request, response) // 处理响应
+			rf.mu.Unlock()
+		}
+	}
+}
+
+// BroadcastHeartbeat 领导者节点向所有追随者广播心跳信号或触发日志复制。
+// 接受一个布尔值 isHeartBeat，用于决定是发送心跳还是触发日志复制
+func (rf *Raft) BroadcastHeartbeat(isHeartbeat bool) {
+	for peer := range rf.peers { // 遍历集群中的所有节点
+		if peer == rf.me {
+			continue // 节点不需要给自己发送心跳或复制日志
+		}
+		if isHeartbeat { // 当前操作是为了发送心跳信号
+			// 心跳是空的日志条目，用来维持领导者的权威和防止追随者发起不必要的选举
+			// need sending at once to maintain leadership
+			go rf.replicateOneRound(peer)
+		} else { // 当前操作是为了触发日志复制
+			// just signal replicator goroutine to send entries in batch
+			// 给每个追随者节点发送信号给与该节点相关的 replicatorCond 条件变量
+			// 这种机制用于日志条目的批量发送，允许合并多个日志条目以提高效率
+			rf.replicatorCond[peer].Signal()
+		}
 	}
 }
 

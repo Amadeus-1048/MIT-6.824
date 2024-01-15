@@ -1,7 +1,7 @@
 package raft
 
 // RequestVote RPC handler.
-// Follower 在选举过程中处理投票请求时调用
+// Follower / Candidate 在选举过程中处理 Candidate 的投票请求时调用
 func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteResponse) {
 	// Your code here (2A, 2B).
 
@@ -46,7 +46,6 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 	rf.electionTimer.Reset(RandomizedElectionTimeout()) // 重置选举计时器（避免在已经投票的情况下启动新的选举）
 	response.Term = rf.currentTerm
 	response.VoteGranted = true // 在响应中表明已授予投票
-
 }
 
 // 发起新的领导者选举
