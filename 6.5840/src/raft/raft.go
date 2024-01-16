@@ -241,7 +241,8 @@ func (rf *Raft) replicateOneRound(peer int) {
 		return
 	}
 	// 确定发送日志复制还是快照安装
-	// 在leader触发心跳时，preLogIndex为follower最后一个日志的索引，这意味着要添加的日志为空日志
+	// 在leader触发心跳时，preLogIndex为follower最后一个日志的索引，这意味着要添加的日志为空日志。
+	// 所以是根据自己的rf.nextIndex[peer]决定仅发送心跳还是携带日志。
 	preLogIndex := rf.nextIndex[peer] - 1     // 领导者认为追随者即将要插入位置的前一位的索引
 	if preLogIndex < rf.getFirstLog().Index { // prevLogIndex 小于领导者日志中的第一个条目的索引，意味着追随者落后太多
 		// 无法通过普通的日志复制来更新，只能使用快照

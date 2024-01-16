@@ -1,7 +1,7 @@
 package raft
 
 // AppendEntries : 附加日志条目 RPC。
-// Leader 使用此 RPC 来复制日志条目到其他节点（Follower）
+// Leader 通过 rf.peers[server].Call("Raft.AppendEntries", request, response) 来复制日志条目到server节点
 func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
 	// 加锁和持久化
 	rf.mu.Lock()
@@ -42,17 +42,21 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		// 确定冲突条目的索引和任期号。 用于帮助领导者快速定位到日志不一致的位置，从而高效地修复日志不一致的问题
 		lastIndex := rf.getLastLog().Index
 		if lastIndex < request.PrevLogIndex { // 如果追随者的日志比领导者请求的 PrevLogIndex 短.
-			// 说明其缺少领导者期望的日志条目
-			response.ConflictTerm = -1             // 将 ConflictTerm 设置为 -1（表示不存在的任期号）
-			response.ConflictIndex = lastIndex + 1 // 设置 ConflictIndex 为追随者日志的下一个索引位置
+			// 说明其自身的日志太少了，缺少领导者期望的日志条目，也就是说lastIndex后面缺了几个日志才能到达PrevLogIndex
+			response.ConflictTerm = -1             // 表示不是任期冲突
+			response.ConflictIndex = lastIndex + 1 // 设置为追随者日志的下一个索引位置，即更新Leader记录的nextIndex[peer]为自己的lastLogIndex+1
 		} else { // 如果追随者的日志包含 PrevLogIndex，则找出在该位置及之前发生冲突的最早任期号和索引
 			firstIndex := rf.getFirstLog().Index
 			response.ConflictTerm = rf.logs[request.PrevLogIndex-firstIndex].Term
-			index := request.PrevLogIndex - 1
-			for index >= firstIndex && rf.logs[index-firstIndex].Term == response.ConflictTerm {
-				index-- // 发生冲突的最早索引 通过查找第一个任期号与 PrevLogIndex 处任期号不同的条目来实现
-			}
-			response.ConflictIndex = index
+
+			// 下面的代码即使不使用，也可以通过所有测试，而且性能上似乎没有太大的差别
+			// 因为在 handleAppendEntriesResponse 方法中，在处理日志不一致的问题时唯一使用到的是response.ConflictTerm
+
+			//index := request.PrevLogIndex - 1
+			//for index >= firstIndex && rf.logs[index-firstIndex].Term == response.ConflictTerm {
+			//	index-- // 发生冲突的最早索引 通过查找第一个任期号与 PrevLogIndex 处任期号不同的条目来实现
+			//}
+			//response.ConflictIndex = index
 		}
 		return // 漏了会导致 Test (2B): agreement after follower reconnects 失败
 	}
@@ -117,7 +121,7 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 				// 解决日志不一致
 				if response.ConflictTerm != -1 { //  追随者在自己的日志中找到了一个与领导者日志不匹配的特定任期号
 					firstIndex := rf.getFirstLog().Index
-					// 领导者遍历自己的日志，从 PrevLogIndex 开始向前查找，直到它达到日志数组的第一个元素。
+					// 领导者遍历自己的日志，从 PrevLogIndex 开始向前查找
 					// 目的是在领导者日志中找到与 ConflictTerm 相同的任期号的最后一个日志条目
 					for i := request.PrevLogIndex; i >= firstIndex; i-- {
 						// 一旦找到这样的条目，将 nextIndex 更新为该条目的下一个索引（即 i + 1），
