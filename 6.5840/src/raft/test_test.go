@@ -1298,6 +1298,10 @@ func TestSnapshotInit2D(t *testing.T) {
 }
 
 func Test_amadeus(t *testing.T) {
-	fmt.Printf("{Term:%v,CandidateId:%d}",
+	fmt.Printf("{Term:%v,CandidateId:%d}\n",
 		"123", 456)
+
+	a := make([]int, 3)
+	fmt.Println(a[3:])
+	fmt.Println(len(a[3:]))
 }
