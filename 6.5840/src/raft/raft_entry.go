@@ -134,6 +134,10 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 							break
 						}
 					}
+					// If AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
+					// 尝试添加下面的代码，发现不影响test
+					//request.PrevLogIndex = rf.nextIndex[peer] - 1
+					//go rf.handleAppendEntriesResponse(peer, request, response)
 				}
 			}
 		}
@@ -189,7 +193,7 @@ func (rf *Raft) updateCommitIndexForFollower(leaderCommit int) {
 	// 在后续的 AppendEntries 请求中，领导者将发送缺失的日志条目，以便追随者可以追上领导者的日志状态
 	newCommitIndex := Min(leaderCommit, rf.getLastLog().Index) // 为了防止追随者提交尚未复制的日志条目
 	if newCommitIndex > rf.commitIndex {
-		// 如果 newCommitIndex < rf.commitIndex，意味着追随者已经接收并应用了领导者发送的所有日志条目，
+		// 如果 newCommitIndex < rf.commitIndex，意味着追随者已经接收了领导者发送的所有日志条目，
 		// 或者领导者发送的日志还没有追上追随者已有的日志
 		DPrintf("{Node %d} update commitIndex from %d to %d with leaderCommit %d in term %d",
 			rf.me, rf.commitIndex, newCommitIndex, leaderCommit, rf.currentTerm)
