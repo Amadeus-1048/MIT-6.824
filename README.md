@@ -13,5 +13,21 @@
   - [x] 阅读[论文](https://pdos.csail.mit.edu/6.824/papers/raft-extended.pdf)
     - [x] 先简单的看一遍
   - [x] 阅读课程的[Lab提示](https://pdos.csail.mit.edu/6.824/labs/lab-raft.html)
-  - [ ] 通过 Test
+  - [x] 通过 Test
     - [x] 2A
+    - [x] 2B
+    - [x] 2C
+    - [x] 2D
+  - [ ] 总结、复盘
+
+
+
+## 笔记
+
+### MapReduce
+
+
+
+### Raft
+
+#### 日志复制流程
