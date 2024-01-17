@@ -1,6 +1,6 @@
 package raft
 
-// AppendEntries : 附加日志条目 RPC。
+// AppendEntries : 附加日志条目 RPC，也被用作心跳。
 // Leader 通过 rf.peers[server].Call("Raft.AppendEntries", request, response) 来复制日志条目到server节点
 func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
 	// 加锁和持久化
@@ -189,8 +189,13 @@ func (rf *Raft) updateCommitIndexForLeader() {
 
 // updateCommitIndexForFollower 在追随者节点上根据领导者的 leaderCommit 来更新 commitIndex。
 func (rf *Raft) updateCommitIndexForFollower(leaderCommit int) {
-	// 如果 leaderCommit < rf.getLastLog().Index，意味着追随者的日志落后于领导者
+	// 如果 leaderCommit > rf.getLastLog().Index，意味着追随者的日志落后于领导者
 	// 在后续的 AppendEntries 请求中，领导者将发送缺失的日志条目，以便追随者可以追上领导者的日志状态
+
+	// 这里是leader 通知follower， 我已经commit到 leaderCommit 这个index了， 你也可以commit到这里。
+	// 但如果follower的entries不够新，那follower就只能commit到他自己的最后一个index。
+	// 如果【日志项最后一个位置】< LeaderCommit ，就说明自己还没有最新的日志，而自己能够确定的位置就是当前entries的最后一个位置，把commitIndex更新到这个位置就可以了。
+	// 如果【日志项最后一个位置】>= LeaderCommit，就说明自己能够确定的位置和Leader是一样的，那么就更新到LeaderCommit这个位置就可以了。
 	newCommitIndex := Min(leaderCommit, rf.getLastLog().Index) // 为了防止追随者提交尚未复制的日志条目
 	if newCommitIndex > rf.commitIndex {
 		// 如果 newCommitIndex < rf.commitIndex，意味着追随者已经接收了领导者发送的所有日志条目，
