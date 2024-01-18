@@ -51,12 +51,12 @@ type Raft struct {
 	logs        []Entry // 节点的日志条目数组，日志条目包含命令以及它们被提交时的任期号。认定第一个日志条目的下标是 0
 
 	// Volatile state on all servers
-	commitIndex int // 已知被提交的最新的日志条目的索引。初始化为 0
-	lastApplied int // 已经被应用到状态机的最新的日志条目的索引。初始化为 0
+	commitIndex int // 供所有节点使用，已知被提交的最新的日志条目的索引。初始化为 0
+	lastApplied int // 供所有节点使用，已经被应用到状态机的最新的日志条目的索引。初始化为 0
 
 	// Volatile state on leaders
-	nextIndex  []int // 对于每个节点，需要发送给它的下一个日志条目的索引。初始化为 Leader 节点的最后一个日志条目下标 +1
-	matchIndex []int // 对于每个节点，已经复制到该节点的最新日志条目的索引。初始化为 0
+	nextIndex  []int // 供Leader使用，表示需要发送给Follower的日志条目的索引。初始化为 Leader 节点的最后一个日志条目下标 +1
+	matchIndex []int // 供Leader使用，表示每个Follower已经复制的最新日志条目的索引。初始化为 0
 
 	// Timer
 	electionTimer  *time.Timer // 用于触发选举的计时器。如果在超时时间内没有收到leader的心跳，则启动新的选举
