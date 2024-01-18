@@ -21,9 +21,8 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
-	//rf.persister.Save(rf.encodeState(), clone(rf.persister.ReadSnapshot()))
+	rf.persister.Save(rf.encodeState(), rf.persister.ReadSnapshot())
 	//rf.persister.Save(rf.encodeState(), nil)
-	rf.persister.SaveRaftState(rf.encodeState())
 
 }
 
