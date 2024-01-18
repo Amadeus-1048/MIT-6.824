@@ -91,8 +91,8 @@ func (response AppendEntriesResponse) String() string {
 type InstallSnapshotRequest struct {
 	Term              int
 	LeaderId          int
-	LastIncludedTerm  int
-	LastIncludedIndex int
+	LastIncludedTerm  int // 最后被快照的日志条目的任期
+	LastIncludedIndex int // 最后被快照的日志条目的下标索引
 	Data              []byte
 }
 

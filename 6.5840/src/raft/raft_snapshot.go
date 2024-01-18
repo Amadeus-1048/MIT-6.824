@@ -1,6 +1,7 @@
 package raft
 
 // Snapshot 在服务端触发日志压缩。index 表示快照覆盖到的日志索引，snapshot 是一个字节数组，包含了要保存的快照数据
+// 上层服务调用Snapshot()将其状态的快照传递给Raft。上层一旦调用下层的该方法，就会让下层修剪日志。
 // the service says it has created a snapshot that has
 // all info up to and including index. this means the
 // service no longer needs the log through (and including)
@@ -31,7 +32,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
-// InstallSnapshot 处理领导者节点发送来的安装快照请求, 在追随者节点上更新状态以匹配领导者的快照
+// InstallSnapshot 处理Leader发送来的安装快照请求, 在Follower上更新状态以匹配Leader的快照
 func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
 	// 加锁和设置响应的任期号
 	rf.mu.Lock()
@@ -66,6 +67,8 @@ func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *Insta
 
 // CondInstallSnapshot 处理由上层服务触发的快照安装请求，与直接从领导者接收快照安装请求（InstallSnapshot）不同。
 // 接收的参数为快照的任期号、索引以及快照数据。返回值表示是否接受了快照。
+// 该方法是为了保证每次snapshot安装的状态都为最新apply的状态， 在config.go中的appliersnap()方法安装快照之后，
+// 会更新该方法内的lastApplied（不是raft自身保存的lastApplied）为快照的最后的index（相当于回溯了）。
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
 	// 加锁并检查快照是否过时
 	rf.mu.Lock()
@@ -97,8 +100,7 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	return true // 表示快照已被接受并处理
 }
 
-// 用于在领导者节点向追随者节点发送快照安装请求。
-// 这种请求通常在追随者的日志严重落后或缺失时使用，以帮助追随者快速同步到领导者的当前状态
+// Leader向Follower发送快照安装请求。通常在Follower的日志严重落后或缺失时使用，以帮助其快速同步到Leader的当前状态
 func (rf *Raft) genInstallSnapshotRequest() *InstallSnapshotRequest {
 	// 获取 Raft 日志的第一个条目（firstLog），它通常是一个哑元条目，其索引和任期标记着快照的起点
 	firstLog := rf.getFirstLog()
@@ -112,7 +114,7 @@ func (rf *Raft) genInstallSnapshotRequest() *InstallSnapshotRequest {
 	return request
 }
 
-// 领导者节点处理快照安装响应的关键部分。它根据追随者的响应来更新内部状态，包括日志匹配索引。
+// Leader处理快照安装的响应，更新内部状态，包括日志匹配索引。
 // 成功的响应会导致更新这些索引，从而确保领导者认为追随者的状态与自己同步。
 func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
 	// 检查状态和任期
