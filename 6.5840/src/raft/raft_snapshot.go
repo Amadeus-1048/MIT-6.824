@@ -32,7 +32,8 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 }
 
-// InstallSnapshot 处理Leader发送来的安装快照请求, 在Follower上更新状态以匹配Leader的快照
+// InstallSnapshot 处理Leader发送的安装快照请求, 在一个非常落后的Follower上更新状态以匹配Leader的快照。
+// InstallSnapshot RPC 和 AppendEntries RPC 在某种程度上是共通的，他们都是由 Leader 节点发起用于更新 Follower 节点信息的
 func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
 	// 加锁和设置响应的任期号
 	rf.mu.Lock()
@@ -51,7 +52,9 @@ func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *Insta
 	rf.ChangeState(StateFollower)
 	rf.electionTimer.Reset(RandomizedElectionTimeout()) // 重置选举计时器，以防止在处理快照期间发生不必要的选举
 	// 检查快照是否过时
-	if request.LastIncludedIndex <= rf.commitIndex {
+	if request.LastIncludedIndex <= rf.commitIndex { // 说明本地已经包含了该 snapshot 所有的数据信息
+		// 尽管可能状态机还没有这个 snapshot 新，即 lastApplied 还没更新到 commitIndex
+		// 但是 applier 协程也一定尝试在 apply 了，此时便没必要再去用 snapshot 更换状态机了。
 		return // 快照是过时的，不进行任何操作
 	}
 	// 异步发送快照到应用通道
@@ -137,5 +140,4 @@ func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshot
 		"lastApplied %v,firstLog %v,lastLog %v} after handling InstallSnapshotResponse %v "+
 		"for InstallSnapshotRequest %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex,
 		rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), response, request)
-
 }
