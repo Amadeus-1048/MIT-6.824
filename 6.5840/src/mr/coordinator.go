@@ -11,7 +11,7 @@ import "net/rpc"
 import "net/http"
 
 type Task struct {
-	fileName  string
+	fileName  string // 文件名
 	id        int
 	startTime time.Time
 	status    TaskStatus
@@ -31,9 +31,9 @@ type reportMsg struct {
 type Coordinator struct {
 	// Your definitions here.
 	files   []string
-	nReduce int
-	nMap    int
-	phase   SchedulePhase
+	nReduce int           // Reduce任务数量
+	nMap    int           // Map任务数量
+	phase   SchedulePhase // 当前阶段
 	tasks   []Task
 
 	heartbeatCh chan heartbeatMsg
