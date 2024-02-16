@@ -43,7 +43,7 @@ type Coordinator struct {
 
 // Your code here -- RPC handlers for the worker to call.
 
-// Worker定期发送心跳信号给Coordinator，以证明它们仍然活着，并可能请求新的工作
+// 处理 worker 发送的心跳。Worker定期发送心跳信号给Coordinator，以证明它们仍然活着，并可能请求新的工作
 func (c *Coordinator) Heartbeat(request *HeartbeatRequest, response *HeartbeatResponse) error {
 	msg := heartbeatMsg{
 		response: response,

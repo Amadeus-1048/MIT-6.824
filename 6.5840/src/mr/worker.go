@@ -180,6 +180,8 @@ func doReduceTask(reduceF func(string, []string) string, response *HeartbeatResp
 	doReport(response.ID, ReducePhase)
 }
 
+// Worker 向 Coordinator 获取心跳
+// 通过 RPC 向Coordinator发送一个心跳请求，并接收回应
 func doHeartbeat() *HeartbeatResponse {
 	heartbeatRequest := HeartbeatRequest{}
 	response := HeartbeatResponse{}
