@@ -41,7 +41,7 @@ func (rf *Raft) RequestVote(request *RequestVoteRequest, response *RequestVoteRe
 	}
 
 	// 投票给候选人
-	// 只有在 grant 投票时才重置选举超时时间，这样有助于网络不稳定条件下选主的 liveliness 问题
+	// 只有在给予投票时才重置选举超时时间，这样有助于网络不稳定条件下选主的 liveliness 问题
 	rf.votedFor = request.CandidateId                   // 已经通过了所有检查，投票给发起请求的候选人
 	rf.electionTimer.Reset(RandomizedElectionTimeout()) // 重置选举计时器（避免在已经投票的情况下启动新的选举）
 	response.Term = rf.currentTerm
