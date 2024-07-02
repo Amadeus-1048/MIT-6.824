@@ -15,11 +15,43 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
+type Command struct {
+	*CommandRequest
+}
 
-type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
+type CommandRequest struct {
+	Key string
+	Value string
+	Op op
+	ClientID int64
+	CommandID int64
+}
+
+func (request CommandRequest) String() string {
+	return fmt.Sprintf("{Key:%v, Value:%v, Op:%v, ClientId:%v, CommandId:%v}", request.Key, request.Value, request.Op, request.ClientId, request.CommandId)
+}
+
+type CommandResponse struct {
+	Err   Err
+	Value string
+}
+
+func (response CommandResponse) String() string {
+	return fmt.Sprintf("{Err:%v,Value:%v}", response.Err, response.Value)
+}
+
+type Operation uint8
+
+func (op Operation) String() string {
+	switch op {
+	case OpPut:
+		return "OpPut"
+	case OpAppend:
+		return "OpAppend"
+	case OpGet:
+		return "OpGet"
+	}
+	panic(fmt.Sprintf("unexpected Operation %d", op))
 }
 
 type Err string
