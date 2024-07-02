@@ -9,21 +9,7 @@ import (
 	"sync/atomic"
 )
 
-const Debug = false
 
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug {
-		log.Printf(format, a...)
-	}
-	return
-}
-
-
-type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
-}
 
 type KVServer struct {
 	mu      sync.Mutex

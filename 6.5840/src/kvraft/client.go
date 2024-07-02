@@ -5,9 +5,12 @@ import "crypto/rand"
 import "math/big"
 
 
+// 客户端，负责与分布式键值存储系统进行交互
 type Clerk struct {
 	servers []*labrpc.ClientEnd
-	// You will have to modify this struct.
+	leaderID int64	// Clerk需要跟踪当前的领导者节点，因为领导者是唯一可以处理客户端写请求的节点（Put和Append）
+	clientID int64
+	commandID int64
 }
 
 func nrand() int64 {
@@ -18,9 +21,12 @@ func nrand() int64 {
 }
 
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
-	ck := new(Clerk)
-	ck.servers = servers
-	// You'll have to add code here.
+	ck := &Clerk{
+		servers:servers,
+		leaderID: 0,
+		clientID: nrand(),
+		commandID: 0,
+	}
 	return ck
 }
 
@@ -40,21 +46,22 @@ func (ck *Clerk) Get(key string) string {
 	return ""
 }
 
-// shared by Put and Append.
-//
-// you can send an RPC with code like this:
-// ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
-//
-// the types of args and reply (including whether they are pointers)
-// must match the declared types of the RPC handler function's
-// arguments. and reply must be passed as a pointer.
-func (ck *Clerk) PutAppend(key string, value string, op string) {
-	// You will have to modify this function.
-}
+
 
 func (ck *Clerk) Put(key string, value string) {
 	ck.PutAppend(key, value, "Put")
 }
 func (ck *Clerk) Append(key string, value string) {
 	ck.PutAppend(key, value, "Append")
+}
+
+
+// you can send an RPC with code like this:
+// ok := ck.servers[i].Call("KVServer.PutAppend", &args, &reply)
+//
+// the types of args and reply (including whether they are pointers)
+// must match the declared types of the RPC handler function's
+// arguments. and reply must be passed as a pointer.
+func (ck *Clerk) Command(key string, value string, op string) {
+	// You will have to modify this function.
 }
