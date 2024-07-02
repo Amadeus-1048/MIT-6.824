@@ -41,18 +41,31 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
-
-	// You will have to modify this function.
-	return ""
+	return ck.Command(
+		&CommandRequest{
+			Key: key,
+			Op: OpGet,
+		}
+	)
 }
-
-
 
 func (ck *Clerk) Put(key string, value string) {
-	ck.PutAppend(key, value, "Put")
+	return ck.Command(
+		&CommandRequest{
+			Key: key,
+			Value: value,
+			Op: OpPut,
+		}
+	)
 }
 func (ck *Clerk) Append(key string, value string) {
-	ck.PutAppend(key, value, "Append")
+	return ck.Command(
+		&CommandRequest{
+			Key: key,
+			Value: value,
+			Op: OpAppend,
+		}
+	)
 }
 
 
@@ -62,6 +75,15 @@ func (ck *Clerk) Append(key string, value string) {
 // the types of args and reply (including whether they are pointers)
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
-func (ck *Clerk) Command(key string, value string, op string) {
-	// You will have to modify this function.
+func (ck *Clerk) Command(request *CommandRequest) string {
+	request.ClientID, request.CommandID = ck.clientID, ck.commandID
+	for {
+		response := &CommandResponse{}
+		if !ck.servers[ck.leaderID].Call("KVServer.Command", request, response)  {
+			ck.leaderID = (ck.leaderID + 1) % int64(len(ck.servers))
+			continue
+		}
+		ck.commandID++
+		return response.Value
+	}
 }
