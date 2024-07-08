@@ -19,8 +19,9 @@ type KVServer struct {
 	dead    int32 // set by Kill()
 
 	maxraftstate int // snapshot if log grows this big
+	lastApplied int // 
 
-	// Your definitions here.
+	notifyChans map[int]chan *CommandResponse 
 }
 
 

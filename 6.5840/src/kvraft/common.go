@@ -37,6 +37,12 @@ func (response CommandResponse) String() string {
 
 type Operation uint8
 
+const (
+	OpPut Operation = iota
+	OpAppend
+	OpGet
+)
+
 func (op Operation) String() string {
 	switch op {
 	case OpPut:
@@ -70,28 +76,4 @@ func (err Err) String() string {
 		return "ErrTimeout"
 	}
 	panic(fmt.Sprintf("unexpected Err %d", err))
-}
-
-// Put or Append
-type PutAppendArgs struct {
-	Key   string
-	Value string
-	Op    string // "Put" or "Append"
-	// You'll have to add definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
-}
-
-type PutAppendReply struct {
-	Err Err
-}
-
-type GetArgs struct {
-	Key string
-	// You'll have to add definitions here.
-}
-
-type GetReply struct {
-	Err   Err
-	Value string
 }
