@@ -12,16 +12,18 @@ import (
 
 
 type KVServer struct {
-	mu      sync.Mutex
-	me      int
-	rf      *raft.Raft
-	applyCh chan raft.ApplyMsg
-	dead    int32 // set by Kill()
+	mu      sync.Mutex	// 确保多个 goroutine 同时访问 KVServer 时不会出现数据竞争
+	me      int	
+	rf      *raft.Raft	// Raft 协议的实例
+	applyCh chan raft.ApplyMsg	// Raft 实例在日志条目被提交时会通过applyCh发送消息，KVServer 会从applyCh中读取消息并应用到状态机中
+	dead    int32 // set by Kill()	标识服务器是否已停止运行
 
-	maxraftstate int // snapshot if log grows this big
-	lastApplied int // 
+	maxraftstate int // 指定 Raft 日志的最大大小。日志增长超过这个大小时会触发快照以压缩日志
+	lastApplied int // 记录最后一次应用到状态机的日志索引，以防止状态机回滚
 
-	notifyChans map[int]chan *CommandResponse 
+	stateMachine kVStateMachine	// 键值状态机， 提供键值存储的具体实现
+	lastOperations map[int64]OperationContext	// 记录每个客户端的最后一个命令 ID 和响应，防止重复执行相同的命令。客户端 ID 作为键，OperationContext 作为值，存储每个客户端的操作上下文
+	notifyChans map[int]chan *CommandResponse 	// 用于通知客户端请求的通道。服务器在应用日志后会通过相应的通道通知等待响应的客户端 goroutine，以便它们可以返回结果
 }
 
 
