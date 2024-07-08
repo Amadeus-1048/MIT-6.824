@@ -12,7 +12,7 @@ import (
 
 
 type KVServer struct {
-	mu      sync.Mutex	// 确保多个 goroutine 同时访问 KVServer 时不会出现数据竞争
+	mu      sync.RWMutex	// 确保多个 goroutine 同时访问 KVServer 时不会出现数据竞争
 	me      int	
 	rf      *raft.Raft	// Raft 协议的实例
 	applyCh chan raft.ApplyMsg	// Raft 实例在日志条目被提交时会通过applyCh发送消息，KVServer 会从applyCh中读取消息并应用到状态机中
@@ -27,12 +27,58 @@ type KVServer struct {
 }
 
 
-func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
+func (kv *KVServer) Command(request *CommandRequest, response *CommandResponse) {
+	defer DPrintf("{Node %v} processes CommandRequest %v with CommandResponse %v", kv.rf.Me(), request, response)
+	kv.mu.RLock()
+	if request.Op != OpGet && kv.isDuplicateRequest(request.clientID, request.commandID) {
+		lastResponse := kv.lastOperations[request.ClientID].LastResponse
+		response.Value, response.Err = lastResponse.Value, lastResponse.Err
+		kv.mu.RUnlock()
+		return
+	}
+	kv.mu.RUnlock()
+	index, _, isLeader := kv.rf.Start(Command{request})
+	if !isLeader {
+		response.Err = ErrWrongLeader
+		return 
+	}
+	kv.mu.Lock()
+	ch := kv.getNotifyChan(index)
+	kv.mu.Unlock()
+	select {
+	case result := <- ch:
+		response.Value, response.Err = result.Value, result.Err
+	case <- time.After(ExecuteTimeout):
+		response.Err = ErrTimeout
+	}
+	go func() {
+		kv.mu.Lock()
+		kv.removeOutdatedNotifyChan()
+		kv.mu.Unlock()
+	}()
 }
 
-func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
+// 判断一个客户端请求是否是重复请求。
+// 假设每个新的RPC请求都意味着客户端已经收到并处理了之前的所有请求的回复。因此，如果当前请求的ID小于等于记录的最大命令ID，则认为是重复请求。
+func (kv *KVServer) isDuplicateRequest(clientID int64, requestID int64) bool {
+	operationContext, ok := kv.lastOperations[clientID]	// 获取clientID对应客户端的最新操作上下文
+	// 如果查找到操作上下文，并且请求ID小于等于该客户端的最大已处理命令ID，则表示该请求是重复请求
+	return ok && requestID <= operationContext.MaxAppliedCommandID
+}
+
+// 获取用于通知客户端的通道chan *CommandResponse。通道在Raft日志条目被应用到状态机之后，通知等待结果的客户端
+// index：Raft日志条目的索引，用于标识该日志条目
+// chan *CommandResponse：通道用于通知特定索引的日志条目应用结果
+func (kv *KVServer) getNotifyChan(index int) chan *CommandResponse {	// 确保每个Raft日志条目都有一个对应的通道	
+	if _, ok := kv.notifyChans[index]; !ok {	// 检查通道是否存在
+		kv.notifyChans[index] = make(chan *CommandResponse, 1)	// 创建通道
+	}
+	return kv.notifyChans[index]	// 返回通道
+}
+
+// 当Raft日志条目被应用并且客户端已经被通知后，相关的通知通道就不再需要了。为了避免内存泄漏和无用的资源占用，需要删除这些过时的通道
+func (kv *KVServer) removeOutdatedNotifyChan(index int) {
+	delete(kv.notifyChans, index)
 }
 
 // the tester calls Kill() when a KVServer instance won't

@@ -2,6 +2,8 @@ package kvraft
 
 
 const Debug = false
+const ExecuteTimeout = 500 * time.Millisecond
+
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
