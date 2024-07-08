@@ -75,14 +75,20 @@ func (ck *Clerk) Append(key string, value string) {
 // the types of args and reply (including whether they are pointers)
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
+// 发送一个CommandRequest请求到集群中的服务器，并处理返回的CommandResponse响应
 func (ck *Clerk) Command(request *CommandRequest) string {
+	// 将请求的ClientID和CommandID设置为Clerk的当前clientID和commandID
 	request.ClientID, request.CommandID = ck.clientID, ck.commandID
-	for {
-		response := &CommandResponse{}
-		if !ck.servers[ck.leaderID].Call("KVServer.Command", request, response)  {
-			ck.leaderID = (ck.leaderID + 1) % int64(len(ck.servers))
+	for {	// 使用无限循环来处理请求发送和响应处理,确保请求最终能够成功
+		response := &CommandResponse{}	// 存储服务器的响应
+		// 用RPC发送请求到当前的领导者服务器
+		if !ck.servers[ck.leaderID].Call("KVServer.Command", request, response) || // 如果调用失败
+		response.Err == ErrWrongLeader  || 	// 或当前服务器不是领导者
+		response.Err == ErrTimeout {	// 或请求超时
+			ck.leaderID = (ck.leaderID + 1) % int64(len(ck.servers))	// 尝试下一个服务器
 			continue
 		}
+		// 请求成功后命令ID递增，返回响应中的值
 		ck.commandID++
 		return response.Value
 	}

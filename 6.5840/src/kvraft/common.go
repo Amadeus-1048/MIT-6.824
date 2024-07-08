@@ -1,10 +1,5 @@
 package kvraft
 
-const (
-	OK             = "OK"
-	ErrNoKey       = "ErrNoKey"
-	ErrWrongLeader = "ErrWrongLeader"
-)
 
 const Debug = false
 
@@ -54,7 +49,28 @@ func (op Operation) String() string {
 	panic(fmt.Sprintf("unexpected Operation %d", op))
 }
 
-type Err string
+type Err uint8
+
+const (
+	OK Err = iota
+	ErrNoKey
+	ErrWrongLeader
+	ErrTimeout
+)
+
+func (err Err) String() string {
+	switch err {
+	case OK:
+		return "OK"
+	case ErrNoKey:
+		return "ErrNoKey"
+	case ErrWrongLeader:
+		return "ErrWrongLeader"
+	case ErrTimeout:
+		return "ErrTimeout"
+	}
+	panic(fmt.Sprintf("unexpected Err %d", err))
+}
 
 // Put or Append
 type PutAppendArgs struct {
