@@ -55,6 +55,12 @@ func (op Operation) String() string {
 	panic(fmt.Sprintf("unexpected Operation %d", op))
 }
 
+// 跟踪客户端请求的状态和响应（防止重复处理、提高效率、保证幂等性、状态跟踪）
+type OperationContext struct {
+	MaxAppliedCommandID int64	// 记录已成功应用的最大命令ID
+	LastResponse        *CommandResponse	// 存储上一次处理请求的响应
+}
+
 type Err uint8
 
 const (
