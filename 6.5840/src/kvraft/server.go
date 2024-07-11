@@ -26,31 +26,37 @@ type KVServer struct {
 	notifyChans map[int]chan *CommandResponse 	// 用于通知客户端请求的通道。服务器在应用日志后会通过相应的通道通知等待响应的客户端 goroutine，以便它们可以返回结果
 }
 
-
+// 通过Raft协议处理客户端请求
 func (kv *KVServer) Command(request *CommandRequest, response *CommandResponse) {
 	defer DPrintf("{Node %v} processes CommandRequest %v with CommandResponse %v", kv.rf.Me(), request, response)
+	// 加读锁检查请求是否重复, 如果请求不是OpGet且是重复请求，直接返回上一次的响应结果
 	kv.mu.RLock()
-	if request.Op != OpGet && kv.isDuplicateRequest(request.clientID, request.commandID) {
+	if request.Op != OpGet && kv.isDuplicateRequest(request.clientID, request.commandID) {	
 		lastResponse := kv.lastOperations[request.ClientID].LastResponse
 		response.Value, response.Err = lastResponse.Value, lastResponse.Err
 		kv.mu.RUnlock()
 		return
 	}
+	// 释放锁以提高吞吐量，确保Raft层可以继续提交日志。
+	// 调用kv.rf.Start提交请求到Raft日志，如果当前节点不是领导者，返回错误
 	kv.mu.RUnlock()
-	index, _, isLeader := kv.rf.Start(Command{request})
+	index, _, isLeader := kv.rf.Start(Command{request})	// 将请求封装为Command提交到Raft日志中
 	if !isLeader {
 		response.Err = ErrWrongLeader
 		return 
 	}
+	// 加锁获取通知通道
 	kv.mu.Lock()
 	ch := kv.getNotifyChan(index)
 	kv.mu.Unlock()
-	select {
+	// 等待对应日志索引的通知通道返回结果或超时
+	select {	
 	case result := <- ch:
 		response.Value, response.Err = result.Value, result.Err
 	case <- time.After(ExecuteTimeout):
 		response.Err = ErrTimeout
 	}
+	// 异步清理通知通道，释放内存，避免阻塞客户端请求
 	go func() {
 		kv.mu.Lock()
 		kv.removeOutdatedNotifyChan()
