@@ -58,7 +58,7 @@ func (kv *KVServer) Command(request *CommandRequest, response *CommandResponse) 
 	// 异步清理通知通道，释放内存，避免阻塞客户端请求
 	go func() {
 		kv.mu.Lock()
-		kv.removeOutdatedNotifyChan()
+		kv.removeOutdatedNotifyChan(index)
 		kv.mu.Unlock()
 	}()
 }
@@ -134,7 +134,7 @@ func (kv *KVServer) killed() bool {
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
-	labgob.Register(Operation{})
+	labgob.Register(Command{})
 
 	kv := new(KVServer)
 	kv.me = me
