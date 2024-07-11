@@ -1,9 +1,13 @@
 package kvraft
 
+import (
+	"fmt"
+	"log"
+	"time"
+)
 
 const Debug = false
 const ExecuteTimeout = 500 * time.Millisecond
-
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
@@ -17,15 +21,15 @@ type Command struct {
 }
 
 type CommandRequest struct {
-	Key string
-	Value string
-	Op op
-	ClientID int64
+	Key       string
+	Value     string
+	Op        Operation
+	ClientID  int64
 	CommandID int64
 }
 
 func (request CommandRequest) String() string {
-	return fmt.Sprintf("{Key:%v, Value:%v, Op:%v, ClientId:%v, CommandId:%v}", request.Key, request.Value, request.Op, request.ClientId, request.CommandId)
+	return fmt.Sprintf("{Key:%v, Value:%v, Op:%v, ClientId:%v, CommandId:%v}", request.Key, request.Value, request.Op, request.ClientID, request.CommandID)
 }
 
 type CommandResponse struct {
@@ -59,8 +63,8 @@ func (op Operation) String() string {
 
 // 跟踪客户端请求的状态和响应（防止重复处理、提高效率、保证幂等性、状态跟踪）
 type OperationContext struct {
-	MaxAppliedCommandID int64	// 记录已成功应用的最大命令ID
-	LastResponse        *CommandResponse	// 存储上一次处理请求的响应
+	MaxAppliedCommandID int64            // 记录已成功应用的最大命令ID
+	LastResponse        *CommandResponse // 存储上一次处理请求的响应
 }
 
 type Err uint8
