@@ -87,6 +87,21 @@ func (kv *KVServer) removeOutdatedNotifyChan(index int) {
 	delete(kv.notifyChans, index)
 }
 
+func (kv *KVServer) applyLogToStateMachine(command Command) *CommandResponse {
+	var value string
+	var err Err
+	switch command.Op {
+	case OpGet:
+		value, err = kv.stateMachine.Get(command.Key)
+	case OpPut:
+		err = kv.stateMachine.Put(command.Key, command.Value)
+	case OpAppend:
+		err = kv.stateMachine.Append(command.Key, command.Value)
+	}
+	return &CommandResponse(err, value)
+}
+
+
 // the tester calls Kill() when a KVServer instance won't
 // be needed again. for your convenience, we supply
 // code to set rf.dead (without needing a lock),
@@ -96,9 +111,9 @@ func (kv *KVServer) removeOutdatedNotifyChan(index int) {
 // about this, but it may be convenient (for example)
 // to suppress debug output from a Kill()ed instance.
 func (kv *KVServer) Kill() {
+	DPrintf("{Node %v} has been killed", kv.rf.Me())
 	atomic.StoreInt32(&kv.dead, 1)
 	kv.rf.Kill()
-	// Your code here, if desired.
 }
 
 func (kv *KVServer) killed() bool {
