@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,7 +18,7 @@ type KVServer struct {
 	applyCh chan raft.ApplyMsg // Raft 实例在日志条目被提交时会通过applyCh发送消息，KVServer 会从applyCh中读取消息并应用到状态机中
 	dead    int32              // set by Kill()	标识服务器是否已停止运行
 
-	maxraftstate int // 指定 Raft 日志的最大大小。日志增长超过这个大小时会触发快照以压缩日志
+	maxRaftState int // 指定 Raft 日志的最大大小。日志增长超过这个大小时会触发快照以压缩日志
 	lastApplied  int // 记录最后一次应用到状态机的日志索引，以防止状态机回滚
 
 	stateMachine   kVStateMachine                // 键值状态机， 提供键值存储的具体实现
@@ -86,16 +87,19 @@ func (kv *KVServer) removeOutdatedNotifyChan(index int) {
 	delete(kv.notifyChans, index)
 }
 
+// 将Raft日志条目应用到状态机，并生成相应的响应。Command是Raft日志条目
 func (kv *KVServer) applyLogToStateMachine(command Command) *CommandResponse {
+	// 存储返回值和错误信息
 	var value string
 	var err Err
+	// 根据操作类型应用命令
 	switch command.Op {
 	case OpGet:
-		value, err = kv.stateMachine.Get(command.Key)
+		value, err = kv.stateMachine.Get(command.Key) // 从状态机中获取键对应的值
 	case OpPut:
-		err = kv.stateMachine.Put(command.Key, command.Value)
+		err = kv.stateMachine.Put(command.Key, command.Value) // 将键值对存储到状态机中
 	case OpAppend:
-		err = kv.stateMachine.Append(command.Key, command.Value)
+		err = kv.stateMachine.Append(command.Key, command.Value) // 将值附加到状态机中的键上
 	}
 	return &CommandResponse{err, value}
 }
@@ -117,6 +121,58 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) killed() bool {
 	z := atomic.LoadInt32(&kv.dead)
 	return z == 1
+}
+
+// 判断是否需要进行快照以节省存储空间
+func (kv *KVServer) needSnapshot() bool {
+	// 如果快照阈值已设置，且当前Raft状态大小超过阈值
+	return kv.maxRaftState != -1 && kv.rf.GetRaftStateSize() >= kv.maxRaftState
+}
+
+// 创建快照以保存当前状态机状态和客户端操作上下文
+func (kv *KVServer) takeSnapshot(index int) {
+	w := new(bytes.Buffer)    // 创建缓冲区
+	e := labgob.NewEncoder(w) // 初始化编码器
+	e.Encode(kv.stateMachine) // 编码状态机和操作上下文
+	e.Encode(kv.lastOperations)
+	kv.rf.Snapshot(index, w.Bytes()) // 保存快照
+}
+
+func (kv *KVServer) applier() {
+	for !kv.killed() {
+		select {
+		case msg := <-kv.applyCh:
+			DPrintf("{Node %v} tries to apply message %v", kv.rf.Me(), msg)
+			if msg.CommandValid {
+				kv.mu.Lock()
+				if msg.CommandIndex <= kv.lastApplied {
+					DPrintf("{Node %v} discards outdated message %v because a newer snapshot which lastApplied is %v has been restored", kv.rf.Me(), message, kv.lastApplied)
+					kv.mu.Unlock()
+					continue
+				}
+				kv.lastApplied = msg.CommandIndex
+				var response *CommandResponse
+				command := msg.Command.(Command)
+				if command.Op != OpGet && kv.isDuplicateRequest(command.CommandID, command.ClientID) {
+					DPrintf("{Node %v} doesn't apply duplicated message %v to stateMachine because maxAppliedCommandId is %v for client %v", kv.rf.Me(), message, kv.lastOperations[command.ClientId], command.ClientId)
+					response = kv.lastOperations[command.ClientID].LastResponse
+				} else {
+					response = kv.applyLogToStateMachine(command)
+					if command.Op != OpGet {
+						kv.lastOperations[command.ClientID] = OperationContext{
+							MaxAppliedCommandID: command.CommandID,
+							LastResponse:        response,
+						}
+					}
+				}
+				if currenTerm, isLeader := kv.rf.GetState(); isLeader && msg.CommandTerm == currenTerm {
+					ch := kv.getNotifyChan(msg.CommandIndex)
+					ch <- response
+				}
+				// todo
+			}
+		}
+	}
 }
 
 // servers[] contains the ports of the set of
