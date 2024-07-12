@@ -125,7 +125,7 @@ func (kv *KVServer) killed() bool {
 
 // 判断是否需要进行快照以节省存储空间
 func (kv *KVServer) needSnapshot() bool {
-	// 如果快照阈值已设置，且当前Raft状态大小超过阈值
+	// 快照阈值已设置，且当前Raft状态大小超过阈值
 	return kv.maxRaftState != -1 && kv.rf.GetRaftStateSize() >= kv.maxRaftState
 }
 
@@ -146,7 +146,7 @@ func (kv *KVServer) applier() {
 			if msg.CommandValid {
 				kv.mu.Lock()
 				if msg.CommandIndex <= kv.lastApplied {
-					DPrintf("{Node %v} discards outdated message %v because a newer snapshot which lastApplied is %v has been restored", kv.rf.Me(), message, kv.lastApplied)
+					DPrintf("{Node %v} discards outdated message %v because a newer snapshot which lastApplied is %v has been restored", kv.rf.Me(), msg, kv.lastApplied)
 					kv.mu.Unlock()
 					continue
 				}
@@ -154,7 +154,7 @@ func (kv *KVServer) applier() {
 				var response *CommandResponse
 				command := msg.Command.(Command)
 				if command.Op != OpGet && kv.isDuplicateRequest(command.CommandID, command.ClientID) {
-					DPrintf("{Node %v} doesn't apply duplicated message %v to stateMachine because maxAppliedCommandId is %v for client %v", kv.rf.Me(), message, kv.lastOperations[command.ClientId], command.ClientId)
+					DPrintf("{Node %v} doesn't apply duplicated message %v to stateMachine because maxAppliedCommandId is %v for client %v", kv.rf.Me(), msg, kv.lastOperations[command.ClientID], command.ClientID)
 					response = kv.lastOperations[command.ClientID].LastResponse
 				} else {
 					response = kv.applyLogToStateMachine(command)
@@ -194,7 +194,7 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	kv := new(KVServer)
 	kv.me = me
-	kv.maxraftstate = maxraftstate
+	kv.maxRaftState = maxraftstate
 
 	// You may need initialization code here.
 
