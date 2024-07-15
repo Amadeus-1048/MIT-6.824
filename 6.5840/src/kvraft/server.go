@@ -139,6 +139,27 @@ func (kv *KVServer) takeSnapshot(index int) {
 	kv.rf.Snapshot(index, w.Bytes()) // 保存快照
 }
 
+// 从快照中恢复 KVServer 的状态
+func (kv *KVServer) restoreFromSnapshot(snapshot []byte) {
+	// 检查快照有效性
+	if snapshot == nil || len(snapshot) == 0 {
+		return
+	}
+	// 创建缓冲区和解码器
+	r := bytes.NewBuffer(snapshot) // 字节缓冲区，使用快照数据初始化
+	d := labgob.NewDecoder(r)      // 解码器，用于从字节缓冲区中解码数据
+
+	// 解码快照数据
+	var stateMachine MemoryKV                     // 用于存储解码后的状态机
+	var lastOperations map[int64]OperationContext // 用于存储解码后的客户端操作记录
+	if d.Decode(&stateMachine) != nil || d.Decode(&lastOperations) != nil {
+		DPrintf("{Node %v} restores snapshot failed", kv.rf.Me())
+	}
+
+	// 恢复状态
+	kv.stateMachine, kv.lastOperations = &stateMachine, lastOperations
+}
+
 // 持续从applyCh通道中读取消息并应用到状态机。处理Raft协议的消息，并将状态变化通知给客户端
 func (kv *KVServer) applier() {
 	for !kv.killed() { // 检查KVServer实例是否已终止
@@ -185,7 +206,7 @@ func (kv *KVServer) applier() {
 				// 安装快照
 				kv.mu.Lock()
 				if kv.rf.CondInstallSnapshot(msg.SnapshotTerm, msg.SnapshotIndex, msg.Snapshot) {
-					// todo
+					kv.restoreFromSnapshot(msg.Snapshot)
 					kv.lastApplied = msg.SnapshotIndex
 				}
 				kv.mu.Unlock()
