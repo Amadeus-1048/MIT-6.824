@@ -2,6 +2,7 @@ package kvraft
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -138,25 +139,29 @@ func (kv *KVServer) takeSnapshot(index int) {
 	kv.rf.Snapshot(index, w.Bytes()) // 保存快照
 }
 
+// 持续从applyCh通道中读取消息并应用到状态机。处理Raft协议的消息，并将状态变化通知给客户端
 func (kv *KVServer) applier() {
-	for !kv.killed() {
+	for !kv.killed() { // 检查KVServer实例是否已终止
 		select {
-		case msg := <-kv.applyCh:
+		case msg := <-kv.applyCh: // 接收应用到状态机的消息
 			DPrintf("{Node %v} tries to apply message %v", kv.rf.Me(), msg)
-			if msg.CommandValid {
+			if msg.CommandValid { // 如果消息包含有效的命令，处理该命令
 				kv.mu.Lock()
-				if msg.CommandIndex <= kv.lastApplied {
+				// 丢弃过时消息
+				if msg.CommandIndex <= kv.lastApplied { // 消息的索引小于或等于最后一个应用的索引
 					DPrintf("{Node %v} discards outdated message %v because a newer snapshot which lastApplied is %v has been restored", kv.rf.Me(), msg, kv.lastApplied)
 					kv.mu.Unlock()
 					continue
 				}
+				// 应用命令到状态机
 				kv.lastApplied = msg.CommandIndex
 				var response *CommandResponse
 				command := msg.Command.(Command)
-				if command.Op != OpGet && kv.isDuplicateRequest(command.CommandID, command.ClientID) {
+				// 解析命令，检查是否为重复请求
+				if command.Op != OpGet && kv.isDuplicateRequest(command.CommandID, command.ClientID) { // 如果是重复请求，返回上次的响应
 					DPrintf("{Node %v} doesn't apply duplicated message %v to stateMachine because maxAppliedCommandId is %v for client %v", kv.rf.Me(), msg, kv.lastOperations[command.ClientID], command.ClientID)
 					response = kv.lastOperations[command.ClientID].LastResponse
-				} else {
+				} else { // 如果不是，则将命令应用到状态机，并更新lastOperations
 					response = kv.applyLogToStateMachine(command)
 					if command.Op != OpGet {
 						kv.lastOperations[command.ClientID] = OperationContext{
@@ -165,11 +170,27 @@ func (kv *KVServer) applier() {
 						}
 					}
 				}
+				// 如果当前节点是领导者，并且消息的任期与当前任期相同，则通知客户端
 				if currenTerm, isLeader := kv.rf.GetState(); isLeader && msg.CommandTerm == currenTerm {
 					ch := kv.getNotifyChan(msg.CommandIndex)
 					ch <- response
 				}
-				// todo
+				// 检查和创建快照
+				needSnapshot := kv.needSnapshot()
+				if needSnapshot {
+					kv.takeSnapshot(msg.CommandIndex)
+				}
+				kv.mu.Unlock()
+			} else if msg.SnapshotValid { // 如果消息包含有效的快照，则处理快照消息
+				// 安装快照
+				kv.mu.Lock()
+				if kv.rf.CondInstallSnapshot(msg.SnapshotTerm, msg.SnapshotIndex, msg.Snapshot) {
+					// todo
+					kv.lastApplied = msg.SnapshotIndex
+				}
+				kv.mu.Unlock()
+			} else {
+				panic(fmt.Sprintf("unexpected Message %v", msg))
 			}
 		}
 	}
