@@ -229,21 +229,36 @@ func (kv *KVServer) applier() {
 // you don't need to snapshot.
 // StartKVServer() must return quickly, so it should start goroutines
 // for any long-running work.
+// 初始化并启动一个新的 KVServer 实例
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
+	/*
+		servers []*labrpc.ClientEnd：包含所有服务器的 RPC 连接端点。
+		me int：当前服务器的索引。
+		persister *raft.Persister：持久化 Raft 状态的对象。
+		maxraftstate int：最大 Raft 状态机大小，用于决定何时进行快照。
+	*/
+
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
-	labgob.Register(Command{})
+	labgob.Register(Command{})          // 注册 Command 结构体，以便 Go 的 RPC 库能够对其进行序列化和反序列化
+	applyCh := make(chan raft.ApplyMsg) // 创建应用通道，用于接收 Raft 日志提交的消息
 
-	kv := new(KVServer)
-	kv.me = me
-	kv.maxRaftState = maxraftstate
+	kv := &KVServer{
+		maxRaftState:   maxraftstate,
+		applyCh:        applyCh,
+		lastApplied:    0,
+		rf:             raft.Make(servers, me, persister, applyCh),
+		stateMachine:   NewMemoryKV(),
+		lastOperations: make(map[int64]OperationContext), // 用于记录客户端最后一次操作的映射，以便检测重复请求
+		notifyChans:    map[int]chan *CommandResponse{},  // 用于通知客户端操作结果的通道映射
+	}
 
-	// You may need initialization code here.
+	// 从持久化存储中读取快照，并恢复服务器状态
+	kv.restoreFromSnapshot(persister.ReadSnapshot())
 
-	kv.applyCh = make(chan raft.ApplyMsg)
-	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+	// 将提交的日志应用到状态机
+	go kv.applier()
 
-	// You may need initialization code here.
-
+	DPrintf("{Node %v} has started", kv.rf.Me())
 	return kv
 }
