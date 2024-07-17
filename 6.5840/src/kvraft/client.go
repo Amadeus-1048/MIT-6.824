@@ -1,8 +1,11 @@
 package kvraft
 
-import "6.5840/labrpc"
-import "crypto/rand"
-import "math/big"
+import (
+	"crypto/rand"
+	"math/big"
+
+	"6.5840/labrpc"
+)
 
 // 客户端，负责与分布式键值存储系统进行交互
 type Clerk struct {
@@ -55,6 +58,7 @@ func (ck *Clerk) Put(key string, value string) {
 	}
 	ck.Command(cmd)
 }
+
 func (ck *Clerk) Append(key string, value string) {
 	cmd := &CommandRequest{
 		Key:   key,
