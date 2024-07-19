@@ -249,8 +249,8 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 		lastApplied:    0,
 		rf:             raft.Make(servers, me, persister, applyCh),
 		stateMachine:   NewMemoryKV(),
-		lastOperations: make(map[int64]OperationContext), // 用于记录客户端最后一次操作的映射，以便检测重复请求
-		notifyChans:    map[int]chan *CommandResponse{},  // 用于通知客户端操作结果的通道映射
+		lastOperations: make(map[int64]OperationContext), // 记录客户端最后一次操作的map，以便检测重复请求
+		notifyChans:    map[int]chan *CommandResponse{},  // 通知客户端操作结果的通道map
 	}
 
 	// 从持久化存储中读取快照，并恢复服务器状态
