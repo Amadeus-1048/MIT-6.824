@@ -14,7 +14,7 @@ import "fmt"
 type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
-	CommandIndex int
+	CommandIndex int // Raft 日志条目的索引值。每次在 Raft 中成功提交一个日志条目，都会为该条目分配一个唯一的 commandIndex。
 	CommandTerm  int
 
 	// For 2D:

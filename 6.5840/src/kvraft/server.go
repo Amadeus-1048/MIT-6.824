@@ -131,7 +131,7 @@ func (kv *KVServer) needSnapshot() bool {
 }
 
 // 创建快照以保存当前状态机状态和客户端操作上下文
-func (kv *KVServer) takeSnapshot(index int) {
+func (kv *KVServer) createSnapshot(index int) {
 	w := new(bytes.Buffer)    // 创建缓冲区
 	e := labgob.NewEncoder(w) // 初始化编码器
 	e.Encode(kv.stateMachine) // 编码状态机和操作上下文
@@ -199,7 +199,7 @@ func (kv *KVServer) applier() {
 				// 检查和创建快照
 				needSnapshot := kv.needSnapshot()
 				if needSnapshot {
-					kv.takeSnapshot(msg.CommandIndex)
+					kv.createSnapshot(msg.CommandIndex)
 				}
 				kv.mu.Unlock()
 			} else if msg.SnapshotValid { // 如果消息包含有效的快照，则处理快照消息
