@@ -66,7 +66,8 @@ func (kv *KVServer) Command(request *CommandRequest, response *CommandResponse) 
 }
 
 // 判断一个客户端请求是否是重复请求。
-// 假设每个新的RPC请求都意味着客户端已经收到并处理了之前的所有请求的回复。因此，如果当前请求的ID小于等于记录的最大命令ID，则认为是重复请求。
+// 假设每个新的RPC请求都意味着客户端已经收到并处理了之前的所有RPC请求的回复。因此，如果当前请求的ID小于等于记录的最大命令ID，则认为是重复请求。
+// 即只需要判断一个clientId的最新commandId是否满足条件
 func (kv *KVServer) isDuplicateRequest(clientID int64, requestID int64) bool {
 	operationContext, ok := kv.lastOperations[clientID] // 获取clientID对应客户端的最新操作上下文
 	// 如果查找到操作上下文，并且请求ID小于等于该客户端的最大已处理命令ID，则表示该请求是重复请求
