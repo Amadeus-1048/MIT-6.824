@@ -96,9 +96,13 @@ func (rf *Raft) GetRaftStateSize() int {
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
+//
 // 用于处理来自服务（如键值存储服务器）的命令
 // 作为 Leader 节点时接收新的请求 LogEntry，并新增相关的日志条目。
 // 不是 Leader 节点时，返回相关的信息，例如当前节点认为的 Leader 节点是谁，使得请求可以重定向到 Leader 节点
+//
+// index 新追加日志条目的索引
+// term 新追加日志条目的任期号
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// 如果当前服务器不是领导者，它将返回 false，表示无法开始对命令的一致性达成过程。
 	// 如果是领导者，方法将立即开始一致性达成过程，但不保证该命令最终会被提交到 Raft 日志中，因为领导者可能会失败或失去选举。
