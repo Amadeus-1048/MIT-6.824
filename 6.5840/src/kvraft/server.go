@@ -16,22 +16,24 @@ type KVServer struct {
 	mu      sync.RWMutex // 确保多个 goroutine 同时访问 KVServer 时不会出现数据竞争
 	me      int
 	rf      *raft.Raft         // Raft 协议的实例
-	applyCh chan raft.ApplyMsg // Raft 实例在日志条目被提交时会通过applyCh发送消息，KVServer 会从applyCh中读取消息并应用到状态机中
+	applyCh chan raft.ApplyMsg // Raft 实例在日志条目被commit时会通过applyCh发送消息，KVServer 会从applyCh中读取消息并apply到状态机中
 	dead    int32              // set by Kill()	标识服务器是否已停止运行
 
 	maxRaftState int // 指定 Raft 日志的最大大小。日志增长超过这个大小时会触发快照以压缩日志
 	lastApplied  int // 记录最后一次应用到状态机的日志索引，以防止状态机回滚
 
 	stateMachine   kVStateMachine                // 键值状态机， 提供键值存储的具体实现
-	lastOperations map[int64]OperationContext    // 记录每个客户端的最后一个命令 ID 和响应，防止重复执行相同的命令。客户端 ID 作为键，OperationContext 作为值，存储每个客户端的操作上下文
+	lastOperations map[int64]OperationContext    // 记录每个客户端的最后一个命令 ID 和响应，防止重复执行相同的命令。客户端 ID 作为键，OperationContext 作为值
 	notifyChans    map[int]chan *CommandResponse // 用于通知客户端请求的通道。服务器在应用日志后会通过相应的通道通知等待响应的客户端 goroutine，以便它们可以返回结果
 }
 
 // 通过Raft协议处理客户端请求
+// 被clerk.SendCommand 通过RPC调用
 func (kv *KVServer) Command(request *CommandRequest, response *CommandResponse) {
 	defer DPrintf("{Node %v} processes CommandRequest %v with CommandResponse %v", kv.rf.Me(), request, response)
-	// 加读锁检查请求是否重复, 如果请求不是OpGet且是重复请求，直接返回上一次的响应结果
+	// 加读锁
 	kv.mu.RLock()
+	// 检查请求是否重复, 如果请求不是OpGet且是重复请求，直接返回上一次的响应结果
 	if request.Op != OpGet && kv.isDuplicateRequest(request.ClientID, request.CommandID) {
 		lastResponse := kv.lastOperations[request.ClientID].LastResponse
 		response.Value, response.Err = lastResponse.Value, lastResponse.Err
@@ -75,6 +77,7 @@ func (kv *KVServer) isDuplicateRequest(clientID int64, requestID int64) bool {
 }
 
 // 获取用于通知客户端的通道chan *CommandResponse。通道在Raft日志条目被应用到状态机之后，通知等待结果的客户端
+//
 // index：Raft日志条目的索引，用于标识该日志条目
 // chan *CommandResponse：通道用于通知特定索引的日志条目应用结果
 func (kv *KVServer) getNotifyChan(index int) chan *CommandResponse { // 确保每个Raft日志条目都有一个对应的通道
@@ -230,6 +233,7 @@ func (kv *KVServer) applier() {
 // you don't need to snapshot.
 // StartKVServer() must return quickly, so it should start goroutines
 // for any long-running work.
+//
 // 初始化并启动一个新的 KVServer 实例
 func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
 	/*
