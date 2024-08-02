@@ -22,7 +22,7 @@ type KVServer struct {
 	maxRaftState int // 指定 Raft 日志的最大大小。日志增长超过这个大小时会触发快照以压缩日志
 	lastApplied  int // 记录最后一次应用到状态机的日志索引，以防止状态机回滚
 
-	stateMachine   kVStateMachine                // 键值状态机， 提供键值存储的具体实现
+	stateMachine   KVStateMachine                // 键值状态机， 提供键值存储的具体实现
 	lastOperations map[int64]OperationContext    // 记录每个客户端的最后一个命令 ID 和响应，防止重复执行相同的命令。客户端 ID 作为键，OperationContext 作为值
 	notifyChans    map[int]chan *CommandResponse // 用于通知客户端请求的通道。服务器在应用日志后会通过相应的Notify通道通知等待响应的客户端 goroutine，以便它们可以返回结果
 }
@@ -179,7 +179,7 @@ func (kv *KVServer) applier() {
 			var response *CommandResponse
 			command := msg.Command.(Command)
 			// 解析命令，检查是否为重复请求
-			if command.Op != OpGet && kv.isDuplicateRequest(command.CommandID, command.ClientID) { // 如果是重复请求，返回上次的响应
+			if command.Op != OpGet && kv.isDuplicateRequest(command.ClientID, command.CommandID) { // 如果是重复请求，返回上次的响应
 				DPrintf("{Node %v} doesn't apply duplicated message %v to stateMachine because maxAppliedCommandId is %v for client %v", kv.rf.Me(), msg, kv.lastOperations[command.ClientID], command.ClientID)
 				response = kv.lastOperations[command.ClientID].LastResponse
 			} else { // 如果不是，则将命令应用到状态机，并更新lastOperations

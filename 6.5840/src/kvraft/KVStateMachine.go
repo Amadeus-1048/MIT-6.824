@@ -1,7 +1,7 @@
 package kvraft
 
 // 键值状态机接口
-type kVStateMachine interface {
+type KVStateMachine interface {
 	Get(key string) (string, Err)
 	Put(key, value string) Err
 	Append(key, value string) Err
